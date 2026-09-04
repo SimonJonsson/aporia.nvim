@@ -2,10 +2,10 @@
 
 An AI tutor for Neovim that never writes code.
 
-The LLM is available only as a teacher: it cannot edit buffers, cannot act
-unprompted, and every interaction is a named exercise against a known
-learning trap. The name is the point: *aporia* — the productive state of
-puzzlement the tutor is supposed to leave you in.
+*aporia* (Ancient Greek) — a state of puzzlement; the impasse Socrates
+deliberately drove his interlocutors into, where "I thought I knew" turns
+into "why did I think I knew?" That state is the product. The tutor's job is
+to bring you there and leave you there, equipped.
 
 ## Design guarantees
 
