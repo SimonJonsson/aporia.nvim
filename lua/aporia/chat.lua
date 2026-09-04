@@ -313,7 +313,63 @@ function open_input_float(g, row)
   wo.winhighlight = "FloatBorder:AporiaBorder,Normal:NormalFloat"
 end
 
+function M.focus()
+  if not (M.winid and vim.api.nvim_win_is_valid(M.winid)) then
+    return false
+  end
+  vim.api.nvim_set_current_win(M.input_winid)
+  vim.cmd("startinsert!")
+  return true
+end
+
+local nav_ours_desc = "Aporia: back to chat (else original <C-l>)"
+local nav_key = "<C-l>"
+local nav_prev = nil
+local nav_group = nil
+
+local function mapping_is_ours(m)
+  return m and m.desc == nav_ours_desc
+end
+
+local function ensure_nav()
+  local cur = vim.fn.maparg(nav_key, "n", false, true)
+  if mapping_is_ours(cur) then
+    return
+  end
+  if cur and (cur.callback or (cur.rhs and cur.rhs ~= "")) then
+    nav_prev = cur
+  else
+    nav_prev = nil
+  end
+  if not nav_group then
+    nav_group = vim.api.nvim_create_augroup("aporia_nav", { clear = true })
+  end
+  vim.keymap.set("n", nav_key, function()
+    if
+      M.winid
+      and vim.api.nvim_win_is_valid(M.winid)
+      and vim.api.nvim_win_get_config(0).relative == ""
+    then
+      M.focus()
+    else
+      if nav_prev and nav_prev.callback then
+        pcall(nav_prev.callback)
+      elseif nav_prev and nav_prev.rhs and nav_prev.rhs ~= "" then
+        local keys = vim.api.nvim_replace_termcodes(nav_prev.rhs, true, false, true)
+        vim.api.nvim_feedkeys(keys, "m", false)
+      else
+        vim.cmd("wincmd l")
+      end
+    end
+  end, { desc = nav_ours_desc })
+  vim.api.nvim_create_autocmd("WinEnter", {
+    group = nav_group,
+    callback = ensure_nav,
+  })
+end
+
 function M.open()
+  ensure_nav()
   set_highlights()
   if not (M.bufnr and vim.api.nvim_buf_is_valid(M.bufnr)) then
     create_chat_buffer()
