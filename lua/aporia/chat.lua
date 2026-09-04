@@ -1,15 +1,15 @@
 local M = {
   bufnr = nil,
   winid = nil,
+  input_bufnr = nil,
+  input_winid = nil,
   messages = {},
   busy = false,
-  _input_start = 1,
 }
 
 local GENERATING = "Generating response…"
 local ICONS = { user = "❯", tutor = "◆", staged = "◇" }
-local INPUT_PREFIX = "❯ "
-local HINT = "type below · <CR> send · <C-j> newline · q hide"
+local INPUT_HEIGHT = 5
 local NS = vim.api.nvim_create_namespace("aporia")
 
 local function notify(msg, level)
@@ -39,6 +39,10 @@ local function sep_line()
 end
 
 local function render()
+  local buf = M.bufnr
+  if not (buf and vim.api.nvim_buf_is_valid(buf)) then
+    return
+  end
   local out = {}
   local hls = {}
 
@@ -51,7 +55,7 @@ local function render()
 
   if #M.messages == 0 then
     add("")
-    add("Nothing is sent until you press <CR>.", "AporiaHint")
+    add("Nothing is sent until you press <CR> in the input window.", "AporiaHint")
   end
 
   for _, m in ipairs(M.messages) do
@@ -67,16 +71,14 @@ local function render()
   local context = require("aporia.context")
   local blocks, staged_lines = context.summary()
 
-  local iface = {}
-
   local function iface_add(line, hl_group)
-    iface[#iface + 1] = line
+    out[#out + 1] = line
     if hl_group then
-      hls[#out + #iface] = hl_group
+      hls[#out] = hl_group
     end
   end
 
-  iface[#iface + 1] = ""
+  iface_add("")
   iface_add(sep_line(), "AporiaSep")
 
   if blocks > 0 then
@@ -92,64 +94,64 @@ local function render()
     iface_add(ICONS.staged .. " nothing staged · aa selection · ab buffer", "AporiaHint")
   end
 
-  iface[#iface + 1] = ""
+  iface_add("")
   iface_add(sep_line(), "AporiaSep")
-  iface_add(INPUT_PREFIX)
-  iface_add(HINT, "AporiaHint")
 
   local height = 0
   if M.winid and vim.api.nvim_win_is_valid(M.winid) then
     height = vim.api.nvim_win_get_height(M.winid)
   end
-  local pad = math.max(0, height - #out - #iface)
+  local pad = math.max(0, height - #out)
+  local padded = {}
   for _ = 1, pad do
-    out[#out + 1] = ""
+    padded[#padded + 1] = ""
   end
-  vim.list_extend(out, iface)
+  vim.list_extend(padded, out)
 
-  M._input_start = #out - 1
-
-  vim.api.nvim_buf_set_lines(M.bufnr, 0, -1, false, out)
-  vim.api.nvim_buf_clear_namespace(M.bufnr, NS, 0, -1)
+  vim.bo[buf].modifiable = true
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, padded)
+  vim.bo[buf].modifiable = false
+  vim.api.nvim_buf_clear_namespace(buf, NS, 0, -1)
   for line, hl_group in pairs(hls) do
-    vim.api.nvim_buf_set_extmark(M.bufnr, NS, line - 1, 0, {
-      end_row = line,
+    vim.api.nvim_buf_set_extmark(buf, NS, line + pad - 1, 0, {
+      end_row = line + pad,
       hl_eol = true,
       hl_group = hl_group,
     })
   end
-
-  if M.winid and vim.api.nvim_win_is_valid(M.winid) then
-    vim.api.nvim_win_set_cursor(M.winid, { #out - 1, vim.fn.strdisplaywidth(INPUT_PREFIX) })
-  end
 end
 
-function M.open()
-  set_highlights()
-  if not (M.bufnr and vim.api.nvim_buf_is_valid(M.bufnr)) then
-    M.bufnr = vim.api.nvim_create_buf(false, true)
-    vim.bo[M.bufnr].filetype = "markdown"
-    vim.bo[M.bufnr].buftype = "nofile"
-    vim.bo[M.bufnr].swapfile = false
-    local buf_opts = { buffer = M.bufnr, silent = true }
-    vim.keymap.set({ "n", "i" }, "<CR>", function()
-      M.submit()
-    end, buf_opts)
-    vim.keymap.set("i", "<C-j>", "<CR>", buf_opts)
-    vim.keymap.set("n", "q", function()
-      M.hide()
-    end, buf_opts)
-    pcall(vim.treesitter.start, M.bufnr, "markdown")
-  end
-  render()
-  if M.winid and vim.api.nvim_win_is_valid(M.winid) then
-    vim.api.nvim_set_current_win(M.winid)
-    return
-  end
-  local width = math.floor(vim.o.columns * require("aporia.config").options.window.width)
-  vim.cmd("botright " .. width .. "vsplit")
-  M.winid = vim.api.nvim_get_current_win()
-  local wo = vim.wo[M.winid]
+local function create_chat_buffer()
+  M.bufnr = vim.api.nvim_create_buf(false, true)
+  vim.bo[M.bufnr].filetype = "markdown"
+  vim.bo[M.bufnr].buftype = "nofile"
+  vim.bo[M.bufnr].swapfile = false
+  vim.bo[M.bufnr].textwidth = 0
+  vim.bo[M.bufnr].formatoptions = ""
+  vim.keymap.set("n", "q", function()
+    M.hide()
+  end, { buffer = M.bufnr, silent = true })
+  pcall(vim.treesitter.start, M.bufnr, "markdown")
+end
+
+local function create_input_buffer()
+  M.input_bufnr = vim.api.nvim_create_buf(false, true)
+  vim.bo[M.input_bufnr].buftype = "nofile"
+  vim.bo[M.input_bufnr].swapfile = false
+  vim.bo[M.input_bufnr].textwidth = 0
+  vim.bo[M.input_bufnr].formatoptions = ""
+  local opts = { buffer = M.input_bufnr, silent = true }
+  vim.keymap.set({ "n", "i" }, "<CR>", function()
+    M.submit()
+  end, opts)
+  vim.keymap.set("i", "<C-j>", "<CR>", opts)
+  vim.keymap.set("n", "q", function()
+    M.hide()
+  end, opts)
+end
+
+local function harden_chat_window(win)
+  local wo = vim.wo[win]
   wo.wrap = true
   wo.number = false
   wo.relativenumber = false
@@ -164,27 +166,54 @@ function M.open()
   wo.winfixwidth = true
   wo.scrolloff = 0
   wo.winbar = "%#AporiaWinBar#%= ✦ aporia %=%#AporiaHint#q hide "
-  vim.bo[M.bufnr].textwidth = 0
-  vim.bo[M.bufnr].formatoptions = ""
-  vim.api.nvim_win_set_buf(M.winid, M.bufnr)
-  render()
-  vim.cmd("startinsert")
 end
 
-vim.api.nvim_create_autocmd("WinResized", {
-  group = vim.api.nvim_create_augroup("aporia_resize", { clear = true }),
-  callback = function()
-    if M.winid and vim.tbl_contains(vim.v.event.windows, M.winid) then
-      render()
-    end
-  end,
-})
+function M.open()
+  set_highlights()
+  if not (M.bufnr and vim.api.nvim_buf_is_valid(M.bufnr)) then
+    create_chat_buffer()
+  end
+  if not (M.input_bufnr and vim.api.nvim_buf_is_valid(M.input_bufnr)) then
+    create_input_buffer()
+  end
+  if M.winid and vim.api.nvim_win_is_valid(M.winid) and M.input_winid and vim.api.nvim_win_is_valid(M.input_winid) then
+    vim.api.nvim_set_current_win(M.input_winid)
+    vim.cmd("startinsert!")
+    return
+  end
+  local width = math.floor(vim.o.columns * require("aporia.config").options.window.width)
+  vim.cmd("botright " .. width .. "vsplit")
+  M.winid = vim.api.nvim_get_current_win()
+  harden_chat_window(M.winid)
+  vim.api.nvim_win_set_buf(M.winid, M.bufnr)
+  vim.cmd("belowright " .. INPUT_HEIGHT .. "split")
+  M.input_winid = vim.api.nvim_get_current_win()
+  local wo = vim.wo[M.input_winid]
+  wo.number = false
+  wo.relativenumber = false
+  wo.signcolumn = "no"
+  wo.foldcolumn = "0"
+  wo.statuscolumn = ""
+  wo.spell = false
+  wo.list = false
+  wo.cursorline = false
+  wo.colorcolumn = ""
+  wo.winfixheight = true
+  wo.winbar = "%#AporiaUser#❯ %#AporiaHint#your move · <CR> send · <C-j> newline · q hide"
+  vim.api.nvim_win_set_buf(M.input_winid, M.input_bufnr)
+  render()
+  vim.api.nvim_set_current_win(M.input_winid)
+  vim.cmd("startinsert!")
+end
 
 function M.hide()
-  if M.winid and vim.api.nvim_win_is_valid(M.winid) then
-    vim.api.nvim_win_close(M.winid, true)
+  for _, win in ipairs({ M.input_winid, M.winid }) do
+    if win and vim.api.nvim_win_is_valid(win) then
+      vim.api.nvim_win_close(win, true)
+    end
   end
   M.winid = nil
+  M.input_winid = nil
 end
 
 function M.toggle()
@@ -198,9 +227,11 @@ end
 function M.reset()
   M.messages = {}
   require("aporia.context").clear()
-  if M.bufnr and vim.api.nvim_buf_is_valid(M.bufnr) then
-    render()
+  if M.input_bufnr and vim.api.nvim_buf_is_valid(M.input_bufnr) then
+    vim.bo[M.input_bufnr].modifiable = true
+    vim.api.nvim_buf_set_lines(M.input_bufnr, 0, -1, false, { "" })
   end
+  render()
   notify("aporia: session reset")
 end
 
@@ -208,12 +239,10 @@ function M.submit()
   if M.busy then
     return notify("aporia: waiting for the tutor", vim.log.levels.WARN)
   end
-  local lines = vim.api.nvim_buf_get_lines(M.bufnr, M._input_start - 1, -1, false)
-  if lines[#lines] == HINT then
-    lines[#lines] = nil
+  if not (M.input_bufnr and vim.api.nvim_buf_is_valid(M.input_bufnr)) then
+    return
   end
-  lines[1] = lines[1] or ""
-  lines[1] = lines[1]:gsub("^" .. vim.pesc(INPUT_PREFIX), "", 1)
+  local lines = vim.api.nvim_buf_get_lines(M.input_bufnr, 0, -1, false)
   local text = vim.trim(table.concat(lines, "\n"))
   if text == "" then
     return
@@ -223,6 +252,7 @@ function M.submit()
     text = text .. "\n\n" .. block
   end
   table.insert(M.messages, { role = "user", content = text, time = os.date("%H:%M") })
+  vim.api.nvim_buf_set_lines(M.input_bufnr, 0, -1, false, { "" })
   M._request()
 end
 
@@ -244,6 +274,10 @@ function M._request(opts)
     M.messages[#M.messages] = { role = "assistant", content = content, time = os.date("%H:%M") }
     render()
     require("aporia.fetch").process(content)
+    if M.input_winid and vim.api.nvim_win_is_valid(M.input_winid) then
+      vim.api.nvim_set_current_win(M.input_winid)
+      vim.cmd("startinsert!")
+    end
     if opts.on_reply then
       opts.on_reply(content)
     end
@@ -273,5 +307,14 @@ function M.trap(name)
     M._request()
   end
 end
+
+vim.api.nvim_create_autocmd("WinResized", {
+  group = vim.api.nvim_create_augroup("aporia_resize", { clear = true }),
+  callback = function()
+    if M.winid and vim.tbl_contains(vim.v.event.windows, M.winid) then
+      render()
+    end
+  end,
+})
 
 return M

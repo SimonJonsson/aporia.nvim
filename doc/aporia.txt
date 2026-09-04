@@ -61,10 +61,14 @@ KEYMAPS                                                      *aporia-keymaps*
 <leader>aa     Stage visual selection as context
 <leader>ab     Stage whole buffer as context
 
-Inside the chat window:
-<CR>           Send the text below the separator
-<C-j>          Newline while composing
-q              Hide the window
+Inside the chat:
+<CR>           Send the input window's contents
+<C-j>          Newline while composing (in the input window)
+q              Hide the chat (works in both windows)
+Esc            Leave insert mode in the input window
+
+The chat history is read-only; only the input window at the bottom is
+editable.
 
 ==============================================================================
 TRAPS                                                          *aporia-traps*
