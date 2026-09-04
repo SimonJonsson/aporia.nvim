@@ -120,7 +120,7 @@ local function render()
   end
 
   if M.winid and vim.api.nvim_win_is_valid(M.winid) then
-    vim.api.nvim_win_set_cursor(M.winid, { #out - 1, #INPUT_PREFIX })
+    vim.api.nvim_win_set_cursor(M.winid, { #out - 1, vim.fn.strdisplaywidth(INPUT_PREFIX) })
   end
 end
 
@@ -149,8 +149,23 @@ function M.open()
   local width = math.floor(vim.o.columns * require("aporia.config").options.window.width)
   vim.cmd("botright " .. width .. "vsplit")
   M.winid = vim.api.nvim_get_current_win()
-  vim.wo[M.winid].wrap = true
-  vim.wo[M.winid].winbar = "%#AporiaWinBar#%= ✦ aporia %=%#AporiaHint#q hide "
+  local wo = vim.wo[M.winid]
+  wo.wrap = true
+  wo.number = false
+  wo.relativenumber = false
+  wo.signcolumn = "no"
+  wo.foldcolumn = "0"
+  wo.statuscolumn = ""
+  wo.spell = false
+  wo.list = false
+  wo.cursorline = false
+  wo.cursorcolumn = false
+  wo.colorcolumn = ""
+  wo.winfixwidth = true
+  wo.scrolloff = 0
+  wo.winbar = "%#AporiaWinBar#%= ✦ aporia %=%#AporiaHint#q hide "
+  vim.bo[M.bufnr].textwidth = 0
+  vim.bo[M.bufnr].formatoptions = ""
   vim.api.nvim_win_set_buf(M.winid, M.bufnr)
   render()
   vim.cmd("startinsert")
