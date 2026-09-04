@@ -55,8 +55,8 @@ local function layout(blocks, header_count)
   local staged_text_h = 0
   local staged_h = 0
   if blocks > 0 then
-    staged_text_h = math.min(header_count + 1, STAGED_MAX_LINES)
-    staged_h = staged_text_h + 1
+    staged_text_h = math.min(header_count + 2, STAGED_MAX_LINES)
+    staged_h = staged_text_h
   end
   local chat_h = math.max(g.usable - staged_h - INPUT_HEIGHT - 6, 4)
 
@@ -104,6 +104,8 @@ local function layout(blocks, header_count)
     open_input_float(g, g.row + chat_h + 2 + staged_h + 2)
   end
 end
+
+M.geometry = geometry
 
 local function render_chat()
   local out = {}
@@ -154,27 +156,28 @@ local function render_chat()
     })
   end
 end
-
 local function render_staged(blocks, staged_lines, headers)
   if not (M.staged_bufnr and vim.api.nvim_buf_is_valid(M.staged_bufnr)) then
     return
   end
   local out = {}
   if blocks > 0 then
+    out[#out + 1] = "▢ staged · d unstage · sent with your next message"
     out[#out + 1] = ICONS.staged
       .. string.format(
         " staged: %d block%s · %d lines%s",
         blocks,
         blocks == 1 and "" or "s",
         staged_lines,
-        #headers > STAGED_MAX_LINES - 1 and ("  (+" .. (#headers - (STAGED_MAX_LINES - 1)) .. " more)") or ""
+        #headers > STAGED_MAX_LINES - 2 and ("  (+" .. (#headers - (STAGED_MAX_LINES - 2)) .. " more)") or ""
       )
     for i, h in ipairs(headers) do
-      if i > STAGED_MAX_LINES - 1 then
+      if #out >= STAGED_MAX_LINES then
         break
       end
       out[#out + 1] = "  " .. h
-    end  end
+    end
+  end
   vim.bo[M.staged_bufnr].modifiable = true
   vim.api.nvim_buf_set_lines(M.staged_bufnr, 0, -1, false, out)
   vim.bo[M.staged_bufnr].modifiable = false
@@ -267,7 +270,6 @@ function open_staged_float(g, row, height)
   wo.spell = false
   wo.list = false
   wo.cursorline = false
-  wo.winbar = "%#AporiaStaged# ▢ staged · d unstage · sent with your next message "
   wo.winhighlight = "FloatBorder:AporiaBorder,Normal:NormalFloat"
 end
 

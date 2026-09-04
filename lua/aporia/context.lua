@@ -127,7 +127,7 @@ function M.clear()
 end
 
 function M.unstage(line)
-  local index = line <= 1 and #M.staged or line - 1
+  local index = line <= 2 and #M.staged or line - 2
   local item = table.remove(M.staged, index)
   if item then
     local chat = package.loaded["aporia.chat"]
