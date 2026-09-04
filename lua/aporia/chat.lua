@@ -1,5 +1,3 @@
-local SEP = "───── input below · <CR> send · <C-j> newline · q hide ─────"
-
 local M = {
   bufnr = nil,
   winid = nil,
@@ -8,39 +6,97 @@ local M = {
   _input_start = 1,
 }
 
+local GENERATING = "Generating response…"
+local ICONS = { user = "❯", tutor = "◆", staged = "◇" }
+local INPUT_PREFIX = "❯ "
+local HINT = "type below · <CR> send · <C-j> newline · q hide"
+local NS = vim.api.nvim_create_namespace("aporia")
+
 local function notify(msg, level)
   vim.notify(msg, level or vim.log.levels.INFO, { title = "aporia" })
 end
 
-local function render()
-  local out = { "# aporia", "" }
-  if #M.messages == 0 then
-    out[#out + 1] = "Your tutor is listening. Nothing is sent until you press <CR>."
+local function set_highlights()
+  local groups = {
+    AporiaWinBar = { link = "Title", bold = true },
+    AporiaUser = { link = "Question" },
+    AporiaTutor = { link = "Special" },
+    AporiaStaged = { link = "Comment" },
+    AporiaSep = { link = "Comment" },
+    AporiaHint = { link = "Comment" },
+  }
+  for name, def in pairs(groups) do
+    vim.api.nvim_set_hl(0, name, def)
   end
+end
+
+local function sep_line()
+  local width = 80
+  if M.winid and vim.api.nvim_win_is_valid(M.winid) then
+    width = vim.api.nvim_win_get_width(M.winid)
+  end
+  return string.rep("─", math.max(width, 20))
+end
+
+local function render()
+  local out = {}
+  local hls = {}
+
+  local function add(line, hl_group)
+    out[#out + 1] = line
+    if hl_group then
+      hls[#out] = hl_group
+    end
+  end
+
+  if #M.messages == 0 then
+    add("")
+    add("Nothing is sent until you press <CR>.", "AporiaHint")
+  end
+
   for _, m in ipairs(M.messages) do
     out[#out + 1] = ""
-    out[#out + 1] = m.role == "user" and "## You" or "## Tutor"
+    if m.role == "user" then
+      add(ICONS.user .. " You · " .. m.time, "AporiaUser")
+    else
+      add(ICONS.tutor .. " Tutor · " .. m.time, "AporiaTutor")
+    end
     vim.list_extend(out, vim.split(m.content, "\n"))
   end
+
   local headers = require("aporia.context").headers()
   if #headers > 0 then
     out[#out + 1] = ""
-    out[#out + 1] = "### staged context (sent with your next message)"
+    add(ICONS.staged .. " staged context (sent with your next message)", "AporiaStaged")
     for _, h in ipairs(headers) do
-      out[#out + 1] = "- " .. h
+      add("  - " .. h, "AporiaStaged")
     end
   end
+
   out[#out + 1] = ""
-  out[#out + 1] = SEP
-  out[#out + 1] = ""
-  M._input_start = #out + 1
+  add(sep_line(), "AporiaSep")
+  add(INPUT_PREFIX)
+  add(HINT, "AporiaHint")
+
+  M._input_start = #out - 1
+
   vim.api.nvim_buf_set_lines(M.bufnr, 0, -1, false, out)
+  vim.api.nvim_buf_clear_namespace(M.bufnr, NS, 0, -1)
+  for line, hl_group in pairs(hls) do
+    vim.api.nvim_buf_set_extmark(M.bufnr, NS, line - 1, 0, {
+      end_row = line,
+      hl_eol = true,
+      hl_group = hl_group,
+    })
+  end
+
   if M.winid and vim.api.nvim_win_is_valid(M.winid) then
-    vim.api.nvim_win_set_cursor(M.winid, { #out, 0 })
+    vim.api.nvim_win_set_cursor(M.winid, { #out - 1, #INPUT_PREFIX })
   end
 end
 
 function M.open()
+  set_highlights()
   if not (M.bufnr and vim.api.nvim_buf_is_valid(M.bufnr)) then
     M.bufnr = vim.api.nvim_create_buf(false, true)
     vim.bo[M.bufnr].filetype = "markdown"
@@ -65,6 +121,7 @@ function M.open()
   vim.cmd("botright " .. width .. "vsplit")
   M.winid = vim.api.nvim_get_current_win()
   vim.wo[M.winid].wrap = true
+  vim.wo[M.winid].winbar = "%#AporiaWinBar#%= ✦ aporia %=%#AporiaHint#q hide "
   vim.api.nvim_win_set_buf(M.winid, M.bufnr)
   vim.cmd("startinsert")
 end
@@ -98,6 +155,11 @@ function M.submit()
     return notify("aporia: waiting for the tutor", vim.log.levels.WARN)
   end
   local lines = vim.api.nvim_buf_get_lines(M.bufnr, M._input_start - 1, -1, false)
+  if lines[#lines] == HINT then
+    lines[#lines] = nil
+  end
+  lines[1] = lines[1] or ""
+  lines[1] = lines[1]:gsub("^" .. vim.pesc(INPUT_PREFIX), "", 1)
   local text = vim.trim(table.concat(lines, "\n"))
   if text == "" then
     return
@@ -106,14 +168,14 @@ function M.submit()
   if block ~= "" then
     text = text .. "\n\n" .. block
   end
-  table.insert(M.messages, { role = "user", content = text })
+  table.insert(M.messages, { role = "user", content = text, time = os.date("%H:%M") })
   M._request()
 end
 
 function M._request(opts)
   opts = opts or {}
   M.busy = true
-  table.insert(M.messages, { role = "assistant", content = "*thinking…*" })
+  table.insert(M.messages, { role = "assistant", content = GENERATING, time = os.date("%H:%M") })
   render()
   local prompts = require("aporia.prompts")
   local msgs = { { role = "system", content = prompts.system_prompt } }
@@ -121,11 +183,11 @@ function M._request(opts)
   require("aporia.http").request(msgs, function(err, content)
     M.busy = false
     if err then
-      M.messages[#M.messages] = { role = "assistant", content = "ERROR: " .. err }
+      M.messages[#M.messages] = { role = "assistant", content = "ERROR: " .. err, time = os.date("%H:%M") }
       render()
       return notify(err, vim.log.levels.ERROR)
     end
-    M.messages[#M.messages] = { role = "assistant", content = content }
+    M.messages[#M.messages] = { role = "assistant", content = content, time = os.date("%H:%M") }
     render()
     require("aporia.fetch").process(content)
     if opts.on_reply then
@@ -148,7 +210,7 @@ function M.trap(name)
     return block.block
   end)
   M.open()
-  table.insert(M.messages, { role = "user", content = msg })
+  table.insert(M.messages, { role = "user", content = msg, time = os.date("%H:%M") })
   if name == "log" then
     M._request({ on_reply = function(content)
       require("aporia.log").run(content)
