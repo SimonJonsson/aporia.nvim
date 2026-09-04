@@ -112,10 +112,6 @@ M.geometry = geometry
 local function render_chat()
   local out = {}
   local hls = {}
-  local width = M.geometry().width - 2
-  local title = "✦ aporia"
-  local title_pad = string.rep(" ", math.max(width - #title - #("q hide"), 1))
-  out[#out + 1] = title .. title_pad .. "q hide"
 
   local function add(line, hl_group)
     out[#out + 1] = line
@@ -141,7 +137,7 @@ local function render_chat()
 
   local content_height = M.winid
     and vim.api.nvim_win_is_valid(M.winid)
-    and vim.api.nvim_win_get_height(M.winid)
+    and (vim.api.nvim_win_get_height(M.winid) - 1)
     or 30
   local pad = math.max(0, content_height - #out)
   local padded = {}
@@ -161,14 +157,6 @@ local function render_chat()
       hl_group = hl_group,
     })
   end
-  vim.api.nvim_buf_set_extmark(M.bufnr, NS, pad, 0, {
-    end_col = #title,
-    hl_group = "AporiaWinBar",
-  })
-  vim.api.nvim_buf_set_extmark(M.bufnr, NS, pad, #title + #title_pad, {
-    end_col = #title + #title_pad + #("q hide"),
-    hl_group = "AporiaHint",
-  })
 end
 local function render_staged(blocks, staged_lines, headers)
   if not (M.staged_bufnr and vim.api.nvim_buf_is_valid(M.staged_bufnr)) then
@@ -198,6 +186,9 @@ local function render_staged(blocks, staged_lines, headers)
 end
 
 function M.render()
+  if not (M.winid and vim.api.nvim_win_is_valid(M.winid)) then
+    return
+  end
   set_highlights()
   local context = require("aporia.context")
   local blocks, staged_lines = context.summary()
@@ -227,7 +218,7 @@ local function set_input_chrome()
   vim.api.nvim_buf_clear_namespace(M.input_bufnr, NS_INPUT, 0, -1)
   local last = vim.api.nvim_buf_line_count(M.input_bufnr) - 1
   vim.api.nvim_buf_set_extmark(M.input_bufnr, NS_INPUT, last, 0, {
-    virt_lines = { { { " <CR> send · <C-j> newline · esc leaves insert", "AporiaHint" } } },
+    virt_lines = { { { " <CR> send · <C-j> newline · q hide · esc leaves insert", "AporiaHint" } } },
   })
 end
 
@@ -277,6 +268,7 @@ function open_chat_float(g, height)
   wo.spell = false
   wo.list = false
   wo.cursorline = false
+  wo.winbar = "%#AporiaWinBar# ✦ aporia "
   wo.winhighlight = "FloatBorder:AporiaBorder,Normal:Normal"
 end
 
@@ -335,15 +327,31 @@ function M.open()
     return
   end
   M.hide()
-  M.render()
+  local context = require("aporia.context")
+  local blocks, staged_lines = context.summary()
+  local headers = context.headers()
+  layout(blocks, #headers)
+  render_chat()
+  render_staged(blocks, staged_lines, headers)
   vim.api.nvim_set_current_win(M.input_winid)
   vim.cmd("startinsert!")
 end
 
+local function is_our_float(win)
+  if not (win and vim.api.nvim_win_is_valid(win)) then
+    return false
+  end
+  if vim.api.nvim_win_get_config(win).relative == "" then
+    return false
+  end
+  local buf = vim.api.nvim_win_get_buf(win)
+  return buf == M.bufnr or buf == M.input_bufnr or buf == M.staged_bufnr
+end
+
 function M.hide()
-  for _, win in ipairs({ M.input_winid, M.staged_winid, M.winid }) do
-    if win and vim.api.nvim_win_is_valid(win) then
-      vim.api.nvim_win_close(win, true)
+  for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+    if is_our_float(win) then
+      pcall(vim.api.nvim_win_close, win, true)
     end
   end
   M.winid = nil
@@ -410,7 +418,7 @@ function M._request(opts)
     M.messages[#M.messages] = { role = "assistant", content = content, time = os.date("%H:%M") }
     M.render()
     require("aporia.fetch").process(content)
-    if M.input_winid and vim.api.nvim_win_is_valid(M.input_winid) then
+    if M.input_winid and vim.api.nvim_win_is_valid(M.input_winid) and M.winid and vim.api.nvim_win_is_valid(M.winid) then
       vim.api.nvim_set_current_win(M.input_winid)
       vim.cmd("startinsert!")
     end
@@ -448,7 +456,9 @@ local augroup = vim.api.nvim_create_augroup("aporia_chat", { clear = true })
 vim.api.nvim_create_autocmd("VimResized", {
   group = augroup,
   callback = function()
-    M.render()
+    if M.winid and vim.api.nvim_win_is_valid(M.winid) then
+      M.render()
+    end
   end,
 })
 

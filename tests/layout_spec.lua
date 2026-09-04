@@ -79,21 +79,19 @@ describe("aporia sidebar layout", function()
   it("fills the chat box exactly, no dead rows", function()
     c.open()
     local chat = geom(c.winid)
-    assert.equals(chat.height, vim.api.nvim_buf_line_count(c.bufnr))
+    assert.equals(chat.height - 1, vim.api.nvim_buf_line_count(c.bufnr))
   end)
 
-  it("carries chrome as content and virtual lines, no winbars", function()
+  it("pins the title in the chat winbar, hints in the input", function()
     c.open()
-    assert.equals("", vim.wo[c.winid].winbar or "")
+    assert.is_truthy(vim.wo[c.winid].winbar:find("✦ aporia"))
     assert.equals("", vim.wo[c.input_winid].winbar or "")
-    local found = false
-    for _, l in ipairs(vim.api.nvim_buf_get_lines(c.bufnr, 0, -1, false)) do
-      if l:find("✦ aporia") and l:find("q hide") then
-        found = true
-      end
-    end
-    assert.is_truthy(found)
+    assert.is_true(vim.api.nvim_buf_line_count(c.bufnr) <= vim.api.nvim_win_get_height(c.winid))
   end)
+
+function chat_height_minus_winbar(w)
+  return vim.api.nvim_win_get_height(w) - 1
+end
 
   it("lists short refs in the staged box", function()
     c.open()
