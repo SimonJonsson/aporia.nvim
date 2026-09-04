@@ -52,14 +52,13 @@ local open_chat_float, open_staged_float, open_input_float, create_staged_buffer
 
 local function layout(blocks, header_count)
   local g = geometry()
-  local input_visual = INPUT_HEIGHT + 2
   local staged_text_h = 0
-  local staged_visual = 0
+  local staged_h = 0
   if blocks > 0 then
     staged_text_h = math.min(header_count + 1, STAGED_MAX_LINES)
-    staged_visual = staged_text_h + 2
+    staged_h = staged_text_h + 1
   end
-  local chat_h = g.usable - input_visual - staged_visual
+  local chat_h = math.max(g.usable - staged_h - INPUT_HEIGHT - 6, 4)
 
   if M.winid and vim.api.nvim_win_is_valid(M.winid) then
     vim.api.nvim_win_set_config(M.winid, {
@@ -83,10 +82,10 @@ local function layout(blocks, header_count)
         row = g.row + chat_h + 2,
         col = g.col,
         width = g.width,
-        height = staged_text_h,
+        height = staged_h,
       })
     else
-      open_staged_float(g, g.row + chat_h + 2, staged_text_h)
+      open_staged_float(g, g.row + chat_h + 2, staged_h)
     end
   elseif M.staged_winid and vim.api.nvim_win_is_valid(M.staged_winid) then
     vim.api.nvim_win_close(M.staged_winid, true)
@@ -96,13 +95,13 @@ local function layout(blocks, header_count)
   if M.input_winid and vim.api.nvim_win_is_valid(M.input_winid) then
     vim.api.nvim_win_set_config(M.input_winid, {
       relative = "editor",
-      row = g.row + chat_h + 2 + staged_visual,
+      row = g.row + chat_h + 2 + staged_h + 2,
       col = g.col,
       width = g.width,
       height = INPUT_HEIGHT,
     })
   else
-    open_input_float(g, g.row + chat_h + 2 + staged_visual)
+    open_input_float(g, g.row + chat_h + 2 + staged_h + 2)
   end
 end
 
