@@ -2,10 +2,10 @@
 
 An AI tutor for Neovim that never writes code.
 
-*aporia* (Ancient Greek) — a state of puzzlement; the impasse Socrates
-deliberately drove his interlocutors into, where "I thought I knew" turns
-into "why did I think I knew?" That state is the product. The tutor's job is
-to bring you there and leave you there, equipped.
+> *aporia* (Ancient Greek) — a state of puzzlement; the impasse Socrates
+> deliberately drove his interlocutors into, where "I thought I knew" turns
+> into "why did I think I knew?" That state is the product. The tutor's job is
+> to bring you there and leave you there, equipped.
 
 ## Design guarantees
 
