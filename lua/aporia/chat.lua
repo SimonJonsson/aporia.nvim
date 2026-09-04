@@ -64,19 +64,48 @@ local function render()
     vim.list_extend(out, vim.split(m.content, "\n"))
   end
 
-  local headers = require("aporia.context").headers()
-  if #headers > 0 then
-    out[#out + 1] = ""
-    add(ICONS.staged .. " staged context (sent with your next message)", "AporiaStaged")
-    for _, h in ipairs(headers) do
-      add("  - " .. h, "AporiaStaged")
+  local context = require("aporia.context")
+  local blocks, staged_lines = context.summary()
+
+  local iface = {}
+
+  local function iface_add(line, hl_group)
+    iface[#iface + 1] = line
+    if hl_group then
+      hls[#out + #iface] = hl_group
     end
   end
 
-  out[#out + 1] = ""
-  add(sep_line(), "AporiaSep")
-  add(INPUT_PREFIX)
-  add(HINT, "AporiaHint")
+  iface[#iface + 1] = ""
+  iface_add(sep_line(), "AporiaSep")
+
+  if blocks > 0 then
+    iface_add(
+      ICONS.staged
+        .. string.format(" staged context: %d block%s · %d lines", blocks, blocks == 1 and "" or "s", staged_lines),
+      "AporiaStaged"
+    )
+    for _, h in ipairs(context.headers()) do
+      iface_add("  - " .. h, "AporiaStaged")
+    end
+  else
+    iface_add(ICONS.staged .. " nothing staged · aa selection · ab buffer", "AporiaHint")
+  end
+
+  iface[#iface + 1] = ""
+  iface_add(sep_line(), "AporiaSep")
+  iface_add(INPUT_PREFIX)
+  iface_add(HINT, "AporiaHint")
+
+  local height = 0
+  if M.winid and vim.api.nvim_win_is_valid(M.winid) then
+    height = vim.api.nvim_win_get_height(M.winid)
+  end
+  local pad = math.max(0, height - #out - #iface)
+  for _ = 1, pad do
+    out[#out + 1] = ""
+  end
+  vim.list_extend(out, iface)
 
   M._input_start = #out - 1
 
@@ -123,8 +152,18 @@ function M.open()
   vim.wo[M.winid].wrap = true
   vim.wo[M.winid].winbar = "%#AporiaWinBar#%= ✦ aporia %=%#AporiaHint#q hide "
   vim.api.nvim_win_set_buf(M.winid, M.bufnr)
+  render()
   vim.cmd("startinsert")
 end
+
+vim.api.nvim_create_autocmd("WinResized", {
+  group = vim.api.nvim_create_augroup("aporia_resize", { clear = true }),
+  callback = function()
+    if M.winid and vim.tbl_contains(vim.v.event.windows, M.winid) then
+      render()
+    end
+  end,
+})
 
 function M.hide()
   if M.winid and vim.api.nvim_win_is_valid(M.winid) then

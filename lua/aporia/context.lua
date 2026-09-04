@@ -28,7 +28,7 @@ local function build(kind, bufnr, sel_from, sel_to, from, to)
     )
   end
   local block = header .. "\n```" .. vim.bo[bufnr].filetype .. "\n" .. table.concat(lines, "\n") .. "\n```"
-  return { header = header, block = block }
+  return { header = header, block = block, count = #lines }
 end
 
 local function selection_range(bufnr)
@@ -80,8 +80,16 @@ function M.stage_doc(url, text)
   end
   local header = string.format("Fetched doc: %s (%d lines%s)", url, #lines, truncated)
   local block = header .. "\n```\n" .. table.concat(lines, "\n") .. "\n```"
-  table.insert(M.staged, { header = header, block = block })
+  table.insert(M.staged, { header = header, block = block, count = #lines })
   vim.notify("aporia: staged " .. header)
+end
+
+function M.summary()
+  local blocks, lines = #M.staged, 0
+  for _, item in ipairs(M.staged) do
+    lines = lines + item.count
+  end
+  return blocks, lines
 end
 
 function M.consume()
