@@ -9,7 +9,7 @@ local M = {
 
 local GENERATING = "Generating response…"
 local ICONS = { user = "❯", tutor = "◆", staged = "◇" }
-local INPUT_HEIGHT = 5
+local INPUT_HEIGHT = 6
 local NS = vim.api.nvim_create_namespace("aporia")
 
 local function notify(msg, level)
@@ -24,18 +24,34 @@ local function set_highlights()
     AporiaStaged = { link = "Comment" },
     AporiaSep = { link = "Comment" },
     AporiaHint = { link = "Comment" },
+    AporiaAccent = { link = "Keyword" },
+    AporiaInputTitle = { link = "Title" },
+    AporiaBorder = { link = "Comment" },
   }
   for name, def in pairs(groups) do
     vim.api.nvim_set_hl(0, name, def)
   end
 end
 
-local function sep_line()
-  local width = 80
-  if M.winid and vim.api.nvim_win_is_valid(M.winid) then
-    width = vim.api.nvim_win_get_width(M.winid)
-  end
+local function sep_line(width)
   return string.rep("─", math.max(width, 20))
+end
+
+local function geometry()
+  local width = math.floor(vim.o.columns * require("aporia.config").options.window.width)
+  local tabline_h = (vim.o.showtabline == 2 or (vim.o.showtabline == 1 and vim.fn.tabpagenr("$") > 1)) and 1 or 0
+  local statusline_h = vim.o.laststatus > 0 and 1 or 0
+  local top = tabline_h
+  local usable = vim.o.lines - vim.o.cmdheight - statusline_h - tabline_h
+  local input_visual = INPUT_HEIGHT + 2
+  local chat_visual = usable - input_visual
+  return {
+    row = top,
+    col = vim.o.columns - width,
+    width = width,
+    chat_height = chat_visual - 2,
+    input_row = top + chat_visual,
+  }
 end
 
 local function render()
@@ -55,7 +71,7 @@ local function render()
 
   if #M.messages == 0 then
     add("")
-    add("Nothing is sent until you press <CR> in the input window.", "AporiaHint")
+    add("Nothing is sent until you press <CR> in the input box.", "AporiaHint")
   end
 
   for _, m in ipairs(M.messages) do
@@ -79,7 +95,7 @@ local function render()
   end
 
   iface_add("")
-  iface_add(sep_line(), "AporiaSep")
+  iface_add(sep_line(vim.api.nvim_win_get_width(M.winid) - 2), "AporiaSep")
 
   if blocks > 0 then
     iface_add(
@@ -95,13 +111,10 @@ local function render()
   end
 
   iface_add("")
-  iface_add(sep_line(), "AporiaSep")
+  iface_add(sep_line(vim.api.nvim_win_get_width(M.winid) - 2), "AporiaSep")
 
-  local height = 0
-  if M.winid and vim.api.nvim_win_is_valid(M.winid) then
-    height = vim.api.nvim_win_get_height(M.winid)
-  end
-  local pad = math.max(0, height - #out)
+  local content_height = vim.api.nvim_win_get_height(M.winid) - 1
+  local pad = math.max(0, content_height - #out)
   local padded = {}
   for _ = 1, pad do
     padded[#padded + 1] = ""
@@ -150,22 +163,49 @@ local function create_input_buffer()
   end, opts)
 end
 
-local function harden_chat_window(win)
-  local wo = vim.wo[win]
+local function open_chat_float(g)
+  M.winid = vim.api.nvim_open_win(M.bufnr, false, {
+    relative = "editor",
+    row = g.row,
+    col = g.col,
+    width = g.width,
+    height = g.chat_height,
+    border = "rounded",
+    style = "minimal",
+    zindex = 40,
+  })
+  local wo = vim.wo[M.winid]
   wo.wrap = true
-  wo.number = false
-  wo.relativenumber = false
-  wo.signcolumn = "no"
-  wo.foldcolumn = "0"
-  wo.statuscolumn = ""
   wo.spell = false
   wo.list = false
   wo.cursorline = false
-  wo.cursorcolumn = false
-  wo.colorcolumn = ""
-  wo.winfixwidth = true
-  wo.scrolloff = 0
   wo.winbar = "%#AporiaWinBar#%= ✦ aporia %=%#AporiaHint#q hide "
+  wo.winhighlight = "FloatBorder:AporiaBorder,Normal:Normal"
+end
+
+local function open_input_float(g)
+  M.input_winid = vim.api.nvim_open_win(M.input_bufnr, false, {
+    relative = "editor",
+    row = g.input_row,
+    col = g.col,
+    width = g.width,
+    height = INPUT_HEIGHT,
+    border = "rounded",
+    style = "minimal",
+    zindex = 41,
+  })
+  local wo = vim.wo[M.input_winid]
+  wo.spell = false
+  wo.list = false
+  wo.cursorline = false
+  wo.colorcolumn = ""
+  wo.statuscolumn = "%#AporiaAccent#▌ "
+  local config = require("aporia.config").options
+  local p = config.providers[config.provider] or {}
+  local label = p.model ~= "" and p.model or config.provider
+  wo.winbar = "%#AporiaInputTitle# ▢ %#AporiaWinBar#Tutor · " .. label .. " "
+  wo.statusline = "%#AporiaHint# esc leaves insert %=%#AporiaHint#<CR> send · <C-j> newline · q hide "
+  wo.winhighlight = "FloatBorder:AporiaBorder,Normal:NormalFloat"
 end
 
 function M.open()
@@ -181,26 +221,9 @@ function M.open()
     vim.cmd("startinsert!")
     return
   end
-  local width = math.floor(vim.o.columns * require("aporia.config").options.window.width)
-  vim.cmd("botright " .. width .. "vsplit")
-  M.winid = vim.api.nvim_get_current_win()
-  harden_chat_window(M.winid)
-  vim.api.nvim_win_set_buf(M.winid, M.bufnr)
-  vim.cmd("belowright " .. INPUT_HEIGHT .. "split")
-  M.input_winid = vim.api.nvim_get_current_win()
-  local wo = vim.wo[M.input_winid]
-  wo.number = false
-  wo.relativenumber = false
-  wo.signcolumn = "no"
-  wo.foldcolumn = "0"
-  wo.statuscolumn = ""
-  wo.spell = false
-  wo.list = false
-  wo.cursorline = false
-  wo.colorcolumn = ""
-  wo.winfixheight = true
-  wo.winbar = "%#AporiaUser#❯ %#AporiaHint#your move · <CR> send · <C-j> newline · q hide"
-  vim.api.nvim_win_set_buf(M.input_winid, M.input_bufnr)
+  local g = geometry()
+  open_chat_float(g)
+  open_input_float(g)
   render()
   vim.api.nvim_set_current_win(M.input_winid)
   vim.cmd("startinsert!")
@@ -308,10 +331,26 @@ function M.trap(name)
   end
 end
 
-vim.api.nvim_create_autocmd("WinResized", {
-  group = vim.api.nvim_create_augroup("aporia_resize", { clear = true }),
+local augroup = vim.api.nvim_create_augroup("aporia_chat", { clear = true })
+vim.api.nvim_create_autocmd("VimResized", {
+  group = augroup,
   callback = function()
-    if M.winid and vim.tbl_contains(vim.v.event.windows, M.winid) then
+    if M.winid and M.input_winid and vim.api.nvim_win_is_valid(M.winid) and vim.api.nvim_win_is_valid(M.input_winid) then
+      local g = geometry()
+      vim.api.nvim_win_set_config(M.winid, {
+        relative = "editor",
+        row = g.row,
+        col = g.col,
+        width = g.width,
+        height = g.chat_height,
+      })
+      vim.api.nvim_win_set_config(M.input_winid, {
+        relative = "editor",
+        row = g.input_row,
+        col = g.col,
+        width = g.width,
+        height = INPUT_HEIGHT,
+      })
       render()
     end
   end,
