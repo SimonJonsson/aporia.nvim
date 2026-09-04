@@ -86,7 +86,7 @@ local function layout(blocks, header_count)
         height = staged_text_h,
       })
     else
-      open_staged_float(g.row + chat_h + 2, staged_text_h, g.width)
+      open_staged_float(g, g.row + chat_h + 2, staged_text_h)
     end
   elseif M.staged_winid and vim.api.nvim_win_is_valid(M.staged_winid) then
     vim.api.nvim_win_close(M.staged_winid, true)
@@ -102,7 +102,7 @@ local function layout(blocks, header_count)
       height = INPUT_HEIGHT,
     })
   else
-    open_input_float(g.row + chat_h + 2 + staged_visual, g.width)
+    open_input_float(g, g.row + chat_h + 2 + staged_visual)
   end
 end
 
@@ -175,8 +175,7 @@ local function render_staged(blocks, staged_lines, headers)
         break
       end
       out[#out + 1] = "  " .. h
-    end
-  end
+    end  end
   vim.bo[M.staged_bufnr].modifiable = true
   vim.api.nvim_buf_set_lines(M.staged_bufnr, 0, -1, false, out)
   vim.bo[M.staged_bufnr].modifiable = false
@@ -254,12 +253,12 @@ function open_chat_float(g, height)
   wo.winhighlight = "FloatBorder:AporiaBorder,Normal:Normal"
 end
 
-function open_staged_float(row, height, width)
+function open_staged_float(g, row, height)
   M.staged_winid = vim.api.nvim_open_win(M.staged_bufnr, false, {
     relative = "editor",
     row = row,
-    col = 0,
-    width = width,
+    col = g.col,
+    width = g.width,
     height = height,
     border = "rounded",
     style = "minimal",
@@ -269,16 +268,16 @@ function open_staged_float(row, height, width)
   wo.spell = false
   wo.list = false
   wo.cursorline = false
-  wo.winbar = "%#AporiaStaged# ▢ staged context · d unstage · sent with your next message "
+  wo.winbar = "%#AporiaStaged# ▢ staged · d unstage · sent with your next message "
   wo.winhighlight = "FloatBorder:AporiaBorder,Normal:NormalFloat"
 end
 
-function open_input_float(row, width)
+function open_input_float(g, row)
   M.input_winid = vim.api.nvim_open_win(M.input_bufnr, false, {
     relative = "editor",
     row = row,
-    col = 0,
-    width = width,
+    col = g.col,
+    width = g.width,
     height = INPUT_HEIGHT,
     border = "rounded",
     style = "minimal",

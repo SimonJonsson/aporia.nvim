@@ -27,8 +27,14 @@ local function build(kind, bufnr, sel_from, sel_to, from, to)
       truncated
     )
   end
+  local short
+  if kind == "buffer" then
+    short = display_path(bufnr)
+  else
+    short = display_path(bufnr) .. " " .. sel_from .. "-" .. sel_to
+  end
   local block = header .. "\n```" .. vim.bo[bufnr].filetype .. "\n" .. table.concat(lines, "\n") .. "\n```"
-  return { header = header, block = block, count = #lines }
+  return { header = header, block = block, count = #lines, short = short }
 end
 
 local function selection_range(bufnr)
@@ -88,7 +94,7 @@ function M.stage_doc(url, text)
   end
   local header = string.format("Fetched doc: %s (%d lines%s)", url, #lines, truncated)
   local block = header .. "\n```\n" .. table.concat(lines, "\n") .. "\n```"
-  table.insert(M.staged, { header = header, block = block, count = #lines })
+  table.insert(M.staged, { header = header, block = block, count = #lines, short = url })
   local chat = package.loaded["aporia.chat"]
   if chat then
     chat.render()
@@ -135,7 +141,7 @@ end
 function M.headers()
   local out = {}
   for _, item in ipairs(M.staged) do
-    out[#out + 1] = item.header
+    out[#out + 1] = item.short or item.header
   end
   return out
 end
