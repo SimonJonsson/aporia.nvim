@@ -13,12 +13,14 @@ function M.check()
     else
       vim.health.ok("model: " .. p.model)
     end
-    if p.api_key_env == "" then
+    local key = require("aporia.http").resolve_key(p)
+    if p.api_key_env == "" and p.api_key_cmd == "" and not p.api_key then
       vim.health.ok("no api key required (local provider)")
-    elseif not os.getenv(p.api_key_env) then
-      vim.health.warn("env " .. p.api_key_env .. " is not set")
+    elseif key then
+      vim.health.ok("api key found via "
+        .. (p.api_key and "api_key" or (os.getenv(p.api_key_env or "") and p.api_key_env or "api_key_cmd")))
     else
-      vim.health.ok("env " .. p.api_key_env .. " is set")
+      vim.health.warn("no api key found (checked api_key, env " .. tostring(p.api_key_env) .. ", api_key_cmd)")
     end
   end
   if vim.fn.executable("curl") == 1 then

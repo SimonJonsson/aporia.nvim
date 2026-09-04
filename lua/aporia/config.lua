@@ -7,6 +7,7 @@ M.defaults = {
       base_url = "https://inference.baseten.co/v1",
       model = "",
       api_key_env = "BASETEN_API_KEY",
+      api_key_cmd = "secret-tool lookup service baseten",
     },
     ninfer = {
       base_url = "http://localhost:8000/v1",

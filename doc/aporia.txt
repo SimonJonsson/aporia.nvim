@@ -87,6 +87,18 @@ external documentation passes through the gate configured in |aporia-config|.
 ==============================================================================
 CONFIG                                                         *aporia-config*
 
+API keys are resolved per provider, in order:
+  1. api_key      literal key (only sensible for local servers)
+  2. api_key_env  environment variable, e.g. BASETEN_API_KEY
+  3. api_key_cmd  shell command whose stdout is the key, e.g.
+                  "secret-tool lookup service baseten"
+
+To store a key in the GNOME keyring (survives GUI-launched nvim):
+>
+  secret-tool store --label=aporia service baseten api_key
+  # paste the key, Ctrl-D to finish
+<
+
 fetch.mode     "links" | "confirm" | "auto" (default "confirm")
 fetch.max_fetches_per_turn  (default 2)
 context.padding             lines of surrounding context staged with a
