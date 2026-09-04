@@ -60,7 +60,7 @@ local function layout(blocks, header_count)
     staged_h = staged_text_h
   end
   local staged_visual = staged_h > 0 and (staged_h + 2) or 0
-  local chat_h = math.max(g.usable - staged_visual - INPUT_HEIGHT - 6, 4)
+  local chat_h = math.max(g.usable - staged_visual - INPUT_HEIGHT - 4, 4)
 
   if M.winid and vim.api.nvim_win_is_valid(M.winid) then
     vim.api.nvim_win_set_config(M.winid, {
@@ -97,13 +97,13 @@ local function layout(blocks, header_count)
   if M.input_winid and vim.api.nvim_win_is_valid(M.input_winid) then
     vim.api.nvim_win_set_config(M.input_winid, {
       relative = "editor",
-      row = g.row + chat_h + 2 + staged_h + 2,
+      row = g.row + chat_h + 2 + staged_visual,
       col = g.col,
       width = g.width,
       height = INPUT_HEIGHT,
     })
   else
-    open_input_float(g, g.row + chat_h + 2 + staged_h + 2)
+    open_input_float(g, g.row + chat_h + 2 + staged_visual)
   end
 end
 
@@ -112,6 +112,10 @@ M.geometry = geometry
 local function render_chat()
   local out = {}
   local hls = {}
+  local width = M.geometry().width - 2
+  local title = "✦ aporia"
+  local title_pad = string.rep(" ", math.max(width - #title - #("q hide"), 1))
+  out[#out + 1] = title .. title_pad .. "q hide"
 
   local function add(line, hl_group)
     out[#out + 1] = line
@@ -157,6 +161,14 @@ local function render_chat()
       hl_group = hl_group,
     })
   end
+  vim.api.nvim_buf_set_extmark(M.bufnr, NS, pad, 0, {
+    end_col = #title,
+    hl_group = "AporiaWinBar",
+  })
+  vim.api.nvim_buf_set_extmark(M.bufnr, NS, pad, #title + #title_pad, {
+    end_col = #title + #title_pad + #("q hide"),
+    hl_group = "AporiaHint",
+  })
 end
 local function render_staged(blocks, staged_lines, headers)
   if not (M.staged_bufnr and vim.api.nvim_buf_is_valid(M.staged_bufnr)) then
@@ -208,7 +220,7 @@ local function create_chat_buffer()
   pcall(vim.treesitter.start, M.bufnr, "markdown")
 end
 
-local function set_input_hint()
+local function set_input_chrome()
   if not (M.input_bufnr and vim.api.nvim_buf_is_valid(M.input_bufnr)) then
     return
   end
@@ -225,7 +237,7 @@ local function create_input_buffer()
   vim.bo[M.input_bufnr].swapfile = false
   vim.bo[M.input_bufnr].textwidth = 0
   vim.bo[M.input_bufnr].formatoptions = ""
-  set_input_hint()
+  set_input_chrome()
   local opts = { buffer = M.input_bufnr, silent = true }
   vim.keymap.set({ "n", "i" }, "<CR>", function()
     M.submit()
@@ -265,7 +277,6 @@ function open_chat_float(g, height)
   wo.spell = false
   wo.list = false
   wo.cursorline = false
-  wo.winbar = "%#AporiaWinBar#%= ✦ aporia %=%#AporiaHint#q hide "
   wo.winhighlight = "FloatBorder:AporiaBorder,Normal:Normal"
 end
 
@@ -307,7 +318,6 @@ function open_input_float(g, row)
   wo.cursorline = false
   wo.colorcolumn = ""
   wo.statuscolumn = "%#AporiaAccent#▌ "
-  wo.winbar = "%#AporiaInputTitle# ▢ %#AporiaWinBar#Tutor · " .. label .. " "
   wo.winhighlight = "FloatBorder:AporiaBorder,Normal:NormalFloat"
 end
 
@@ -354,7 +364,7 @@ function M.reset()
   require("aporia.context").clear()
   if M.input_bufnr and vim.api.nvim_buf_is_valid(M.input_bufnr) then
     vim.api.nvim_buf_set_lines(M.input_bufnr, 0, -1, false, { "" })
-    set_input_hint()
+    set_input_chrome()
   end
   M.render()
   notify("aporia: session reset")
@@ -378,7 +388,7 @@ function M.submit()
   end
   table.insert(M.messages, { role = "user", content = text, time = os.date("%H:%M") })
   vim.api.nvim_buf_set_lines(M.input_bufnr, 0, -1, false, { "" })
-  set_input_hint()
+  set_input_chrome()
   M._request()
 end
 

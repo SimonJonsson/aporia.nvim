@@ -82,11 +82,17 @@ describe("aporia sidebar layout", function()
     assert.equals(chat.height, vim.api.nvim_buf_line_count(c.bufnr))
   end)
 
-  it("carries chrome in winbars which do not consume float height", function()
+  it("carries chrome as content and virtual lines, no winbars", function()
     c.open()
-    assert.is_truthy(vim.wo[c.winid].winbar:find("aporia"))
-    assert.is_truthy(vim.wo[c.input_winid].winbar:find("Tutor"))
-    assert.equals(vim.o.statusline, vim.wo[c.input_winid].statusline)
+    assert.equals("", vim.wo[c.winid].winbar or "")
+    assert.equals("", vim.wo[c.input_winid].winbar or "")
+    local found = false
+    for _, l in ipairs(vim.api.nvim_buf_get_lines(c.bufnr, 0, -1, false)) do
+      if l:find("✦ aporia") and l:find("q hide") then
+        found = true
+      end
+    end
+    assert.is_truthy(found)
   end)
 
   it("lists short refs in the staged box", function()
