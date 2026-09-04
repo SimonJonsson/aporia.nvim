@@ -61,6 +61,10 @@ function M.stage_selection()
   local total = vim.api.nvim_buf_line_count(bufnr)
   local item = build("selection", bufnr, s, e, math.max(1, s - opts.padding), math.min(total, e + opts.padding))
   table.insert(M.staged, item)
+  local chat = package.loaded["aporia.chat"]
+  if chat then
+    chat.render()
+  end
   vim.notify("aporia: staged " .. item.header)
 end
 
@@ -68,6 +72,10 @@ function M.stage_buffer()
   local bufnr = vim.api.nvim_get_current_buf()
   local item = build("buffer", bufnr, nil, nil, 1, vim.api.nvim_buf_line_count(bufnr))
   table.insert(M.staged, item)
+  local chat = package.loaded["aporia.chat"]
+  if chat then
+    chat.render()
+  end
   vim.notify("aporia: staged " .. item.header)
 end
 
@@ -81,6 +89,10 @@ function M.stage_doc(url, text)
   local header = string.format("Fetched doc: %s (%d lines%s)", url, #lines, truncated)
   local block = header .. "\n```\n" .. table.concat(lines, "\n") .. "\n```"
   table.insert(M.staged, { header = header, block = block, count = #lines })
+  local chat = package.loaded["aporia.chat"]
+  if chat then
+    chat.render()
+  end
   vim.notify("aporia: staged " .. header)
 end
 
@@ -106,6 +118,18 @@ end
 
 function M.clear()
   M.staged = {}
+end
+
+function M.unstage(line)
+  local index = line <= 1 and #M.staged or line - 1
+  local item = table.remove(M.staged, index)
+  if item then
+    local chat = package.loaded["aporia.chat"]
+    if chat then
+      chat.render()
+    end
+    vim.notify("aporia: unstaged " .. item.header)
+  end
 end
 
 function M.headers()

@@ -64,11 +64,13 @@ KEYMAPS                                                      *aporia-keymaps*
 Inside the chat:
 <CR>           Send the input window's contents
 <C-j>          Newline while composing (in the input window)
-q              Hide the chat (works in both windows)
+q              Hide the chat (works in every window)
+d              Unstage the item under the cursor (staged context box)
 Esc            Leave insert mode in the input window
 
-The chat history is read-only; only the input window at the bottom is
-editable.
+The sidebar is three floating boxes: read-only chat history on top, the
+staged-context box in the middle (only shown when something is staged),
+and the input window at the bottom. Only the input window is editable.
 
 ==============================================================================
 TRAPS                                                          *aporia-traps*

@@ -3,6 +3,8 @@ local M = {
   winid = nil,
   input_bufnr = nil,
   input_winid = nil,
+  staged_bufnr = nil,
+  staged_winid = nil,
   messages = {},
   busy = false,
 }
@@ -10,6 +12,7 @@ local M = {
 local GENERATING = "Generating response…"
 local ICONS = { user = "❯", tutor = "◆", staged = "◇" }
 local INPUT_HEIGHT = 6
+local STAGED_MAX_LINES = 8
 local NS = vim.api.nvim_create_namespace("aporia")
 
 local function notify(msg, level)
@@ -22,7 +25,6 @@ local function set_highlights()
     AporiaUser = { link = "Question" },
     AporiaTutor = { link = "Special" },
     AporiaStaged = { link = "Comment" },
-    AporiaSep = { link = "Comment" },
     AporiaHint = { link = "Comment" },
     AporiaAccent = { link = "Keyword" },
     AporiaInputTitle = { link = "Title" },
@@ -33,32 +35,78 @@ local function set_highlights()
   end
 end
 
-local function sep_line(width)
-  return string.rep("─", math.max(width, 20))
-end
-
 local function geometry()
   local width = math.floor(vim.o.columns * require("aporia.config").options.window.width)
   local tabline_h = (vim.o.showtabline == 2 or (vim.o.showtabline == 1 and vim.fn.tabpagenr("$") > 1)) and 1 or 0
   local statusline_h = vim.o.laststatus > 0 and 1 or 0
-  local top = tabline_h
   local usable = vim.o.lines - vim.o.cmdheight - statusline_h - tabline_h
-  local input_visual = INPUT_HEIGHT + 2
-  local chat_visual = usable - input_visual
   return {
-    row = top,
+    row = tabline_h,
     col = vim.o.columns - width,
     width = width,
-    chat_height = chat_visual - 2,
-    input_row = top + chat_visual,
+    usable = usable,
   }
 end
 
-local function render()
-  local buf = M.bufnr
-  if not (buf and vim.api.nvim_buf_is_valid(buf)) then
-    return
+local open_chat_float, open_staged_float, open_input_float, create_staged_buffer
+
+local function layout(blocks, header_count)
+  local g = geometry()
+  local input_visual = INPUT_HEIGHT + 2
+  local staged_text_h = 0
+  local staged_visual = 0
+  if blocks > 0 then
+    staged_text_h = math.min(header_count + 1, STAGED_MAX_LINES)
+    staged_visual = staged_text_h + 2
   end
+  local chat_h = g.usable - input_visual - staged_visual
+
+  if M.winid and vim.api.nvim_win_is_valid(M.winid) then
+    vim.api.nvim_win_set_config(M.winid, {
+      relative = "editor",
+      row = g.row,
+      col = g.col,
+      width = g.width,
+      height = chat_h,
+    })
+  else
+    open_chat_float(g, chat_h)
+  end
+
+  if blocks > 0 then
+    if not (M.staged_bufnr and vim.api.nvim_buf_is_valid(M.staged_bufnr)) then
+      create_staged_buffer()
+    end
+    if M.staged_winid and vim.api.nvim_win_is_valid(M.staged_winid) then
+      vim.api.nvim_win_set_config(M.staged_winid, {
+        relative = "editor",
+        row = g.row + chat_h + 2,
+        col = g.col,
+        width = g.width,
+        height = staged_text_h,
+      })
+    else
+      open_staged_float(g.row + chat_h + 2, staged_text_h, g.width)
+    end
+  elseif M.staged_winid and vim.api.nvim_win_is_valid(M.staged_winid) then
+    vim.api.nvim_win_close(M.staged_winid, true)
+    M.staged_winid = nil
+  end
+
+  if M.input_winid and vim.api.nvim_win_is_valid(M.input_winid) then
+    vim.api.nvim_win_set_config(M.input_winid, {
+      relative = "editor",
+      row = g.row + chat_h + 2 + staged_visual,
+      col = g.col,
+      width = g.width,
+      height = INPUT_HEIGHT,
+    })
+  else
+    open_input_float(g.row + chat_h + 2 + staged_visual, g.width)
+  end
+end
+
+local function render_chat()
   local out = {}
   local hls = {}
 
@@ -84,36 +132,10 @@ local function render()
     vim.list_extend(out, vim.split(m.content, "\n"))
   end
 
-  local context = require("aporia.context")
-  local blocks, staged_lines = context.summary()
-
-  local function iface_add(line, hl_group)
-    out[#out + 1] = line
-    if hl_group then
-      hls[#out] = hl_group
-    end
-  end
-
-  iface_add("")
-  iface_add(sep_line(vim.api.nvim_win_get_width(M.winid) - 2), "AporiaSep")
-
-  if blocks > 0 then
-    iface_add(
-      ICONS.staged
-        .. string.format(" staged context: %d block%s · %d lines", blocks, blocks == 1 and "" or "s", staged_lines),
-      "AporiaStaged"
-    )
-    for _, h in ipairs(context.headers()) do
-      iface_add("  - " .. h, "AporiaStaged")
-    end
-  else
-    iface_add(ICONS.staged .. " nothing staged · aa selection · ab buffer", "AporiaHint")
-  end
-
-  iface_add("")
-  iface_add(sep_line(vim.api.nvim_win_get_width(M.winid) - 2), "AporiaSep")
-
-  local content_height = vim.api.nvim_win_get_height(M.winid) - 1
+  local content_height = M.winid
+    and vim.api.nvim_win_is_valid(M.winid)
+    and (vim.api.nvim_win_get_height(M.winid) - 1)
+    or 30
   local pad = math.max(0, content_height - #out)
   local padded = {}
   for _ = 1, pad do
@@ -121,17 +143,53 @@ local function render()
   end
   vim.list_extend(padded, out)
 
-  vim.bo[buf].modifiable = true
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, padded)
-  vim.bo[buf].modifiable = false
-  vim.api.nvim_buf_clear_namespace(buf, NS, 0, -1)
+  vim.bo[M.bufnr].modifiable = true
+  vim.api.nvim_buf_set_lines(M.bufnr, 0, -1, false, padded)
+  vim.bo[M.bufnr].modifiable = false
+  vim.api.nvim_buf_clear_namespace(M.bufnr, NS, 0, -1)
   for line, hl_group in pairs(hls) do
-    vim.api.nvim_buf_set_extmark(buf, NS, line + pad - 1, 0, {
+    vim.api.nvim_buf_set_extmark(M.bufnr, NS, line + pad - 1, 0, {
       end_row = line + pad,
       hl_eol = true,
       hl_group = hl_group,
     })
   end
+end
+
+local function render_staged(blocks, staged_lines, headers)
+  if not (M.staged_bufnr and vim.api.nvim_buf_is_valid(M.staged_bufnr)) then
+    return
+  end
+  local out = {}
+  if blocks > 0 then
+    out[#out + 1] = ICONS.staged
+      .. string.format(
+        " staged: %d block%s · %d lines%s",
+        blocks,
+        blocks == 1 and "" or "s",
+        staged_lines,
+        #headers > STAGED_MAX_LINES - 1 and ("  (+" .. (#headers - (STAGED_MAX_LINES - 1)) .. " more)") or ""
+      )
+    for i, h in ipairs(headers) do
+      if i > STAGED_MAX_LINES - 1 then
+        break
+      end
+      out[#out + 1] = "  " .. h
+    end
+  end
+  vim.bo[M.staged_bufnr].modifiable = true
+  vim.api.nvim_buf_set_lines(M.staged_bufnr, 0, -1, false, out)
+  vim.bo[M.staged_bufnr].modifiable = false
+end
+
+function M.render()
+  set_highlights()
+  local context = require("aporia.context")
+  local blocks, staged_lines = context.summary()
+  local headers = context.headers()
+  layout(blocks, #headers)
+  render_chat()
+  render_staged(blocks, staged_lines, headers)
 end
 
 local function create_chat_buffer()
@@ -163,13 +221,26 @@ local function create_input_buffer()
   end, opts)
 end
 
-local function open_chat_float(g)
+function create_staged_buffer()
+  M.staged_bufnr = vim.api.nvim_create_buf(false, true)
+  vim.bo[M.staged_bufnr].buftype = "nofile"
+  vim.bo[M.staged_bufnr].swapfile = false
+  vim.keymap.set("n", "d", function()
+    require("aporia.context").unstage(vim.fn.line(".") - 1)
+    M.render()
+  end, { buffer = M.staged_bufnr, silent = true })
+  vim.keymap.set("n", "q", function()
+    M.hide()
+  end, { buffer = M.staged_bufnr, silent = true })
+end
+
+function open_chat_float(g, height)
   M.winid = vim.api.nvim_open_win(M.bufnr, false, {
     relative = "editor",
     row = g.row,
     col = g.col,
     width = g.width,
-    height = g.chat_height,
+    height = height,
     border = "rounded",
     style = "minimal",
     zindex = 40,
@@ -183,12 +254,31 @@ local function open_chat_float(g)
   wo.winhighlight = "FloatBorder:AporiaBorder,Normal:Normal"
 end
 
-local function open_input_float(g)
+function open_staged_float(row, height, width)
+  M.staged_winid = vim.api.nvim_open_win(M.staged_bufnr, false, {
+    relative = "editor",
+    row = row,
+    col = 0,
+    width = width,
+    height = height,
+    border = "rounded",
+    style = "minimal",
+    zindex = 40,
+  })
+  local wo = vim.wo[M.staged_winid]
+  wo.spell = false
+  wo.list = false
+  wo.cursorline = false
+  wo.winbar = "%#AporiaStaged# ▢ staged context · d unstage · sent with your next message "
+  wo.winhighlight = "FloatBorder:AporiaBorder,Normal:NormalFloat"
+end
+
+function open_input_float(row, width)
   M.input_winid = vim.api.nvim_open_win(M.input_bufnr, false, {
     relative = "editor",
-    row = g.input_row,
-    col = g.col,
-    width = g.width,
+    row = row,
+    col = 0,
+    width = width,
     height = INPUT_HEIGHT,
     border = "rounded",
     style = "minimal",
@@ -221,21 +311,20 @@ function M.open()
     vim.cmd("startinsert!")
     return
   end
-  local g = geometry()
-  open_chat_float(g)
-  open_input_float(g)
-  render()
+  M.hide()
+  M.render()
   vim.api.nvim_set_current_win(M.input_winid)
   vim.cmd("startinsert!")
 end
 
 function M.hide()
-  for _, win in ipairs({ M.input_winid, M.winid }) do
+  for _, win in ipairs({ M.input_winid, M.staged_winid, M.winid }) do
     if win and vim.api.nvim_win_is_valid(win) then
       vim.api.nvim_win_close(win, true)
     end
   end
   M.winid = nil
+  M.staged_winid = nil
   M.input_winid = nil
 end
 
@@ -251,10 +340,9 @@ function M.reset()
   M.messages = {}
   require("aporia.context").clear()
   if M.input_bufnr and vim.api.nvim_buf_is_valid(M.input_bufnr) then
-    vim.bo[M.input_bufnr].modifiable = true
     vim.api.nvim_buf_set_lines(M.input_bufnr, 0, -1, false, { "" })
   end
-  render()
+  M.render()
   notify("aporia: session reset")
 end
 
@@ -283,7 +371,7 @@ function M._request(opts)
   opts = opts or {}
   M.busy = true
   table.insert(M.messages, { role = "assistant", content = GENERATING, time = os.date("%H:%M") })
-  render()
+  M.render()
   local prompts = require("aporia.prompts")
   local msgs = { { role = "system", content = prompts.system_prompt } }
   vim.list_extend(msgs, M.messages)
@@ -291,11 +379,11 @@ function M._request(opts)
     M.busy = false
     if err then
       M.messages[#M.messages] = { role = "assistant", content = "ERROR: " .. err, time = os.date("%H:%M") }
-      render()
+      M.render()
       return notify(err, vim.log.levels.ERROR)
     end
     M.messages[#M.messages] = { role = "assistant", content = content, time = os.date("%H:%M") }
-    render()
+    M.render()
     require("aporia.fetch").process(content)
     if M.input_winid and vim.api.nvim_win_is_valid(M.input_winid) then
       vim.api.nvim_set_current_win(M.input_winid)
@@ -335,24 +423,7 @@ local augroup = vim.api.nvim_create_augroup("aporia_chat", { clear = true })
 vim.api.nvim_create_autocmd("VimResized", {
   group = augroup,
   callback = function()
-    if M.winid and M.input_winid and vim.api.nvim_win_is_valid(M.winid) and vim.api.nvim_win_is_valid(M.input_winid) then
-      local g = geometry()
-      vim.api.nvim_win_set_config(M.winid, {
-        relative = "editor",
-        row = g.row,
-        col = g.col,
-        width = g.width,
-        height = g.chat_height,
-      })
-      vim.api.nvim_win_set_config(M.input_winid, {
-        relative = "editor",
-        row = g.input_row,
-        col = g.col,
-        width = g.width,
-        height = INPUT_HEIGHT,
-      })
-      render()
-    end
+    M.render()
   end,
 })
 
