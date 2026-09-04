@@ -14,6 +14,7 @@ local ICONS = { user = "❯", tutor = "◆", staged = "◇" }
 local INPUT_HEIGHT = 6
 local STAGED_MAX_LINES = 8
 local NS = vim.api.nvim_create_namespace("aporia")
+local NS_INPUT = vim.api.nvim_create_namespace("aporia_input")
 
 local function notify(msg, level)
   vim.notify(msg, level or vim.log.levels.INFO, { title = "aporia" })
@@ -58,7 +59,8 @@ local function layout(blocks, header_count)
     staged_text_h = math.min(header_count + 2, STAGED_MAX_LINES)
     staged_h = staged_text_h
   end
-  local chat_h = math.max(g.usable - staged_h - INPUT_HEIGHT - 6, 4)
+  local staged_visual = staged_h > 0 and (staged_h + 2) or 0
+  local chat_h = math.max(g.usable - staged_visual - INPUT_HEIGHT - 6, 4)
 
   if M.winid and vim.api.nvim_win_is_valid(M.winid) then
     vim.api.nvim_win_set_config(M.winid, {
@@ -135,7 +137,7 @@ local function render_chat()
 
   local content_height = M.winid
     and vim.api.nvim_win_is_valid(M.winid)
-    and (vim.api.nvim_win_get_height(M.winid) - 1)
+    and vim.api.nvim_win_get_height(M.winid)
     or 30
   local pad = math.max(0, content_height - #out)
   local padded = {}
@@ -206,12 +208,24 @@ local function create_chat_buffer()
   pcall(vim.treesitter.start, M.bufnr, "markdown")
 end
 
+local function set_input_hint()
+  if not (M.input_bufnr and vim.api.nvim_buf_is_valid(M.input_bufnr)) then
+    return
+  end
+  vim.api.nvim_buf_clear_namespace(M.input_bufnr, NS_INPUT, 0, -1)
+  local last = vim.api.nvim_buf_line_count(M.input_bufnr) - 1
+  vim.api.nvim_buf_set_extmark(M.input_bufnr, NS_INPUT, last, 0, {
+    virt_lines = { { { " <CR> send · <C-j> newline · esc leaves insert", "AporiaHint" } } },
+  })
+end
+
 local function create_input_buffer()
   M.input_bufnr = vim.api.nvim_create_buf(false, true)
   vim.bo[M.input_bufnr].buftype = "nofile"
   vim.bo[M.input_bufnr].swapfile = false
   vim.bo[M.input_bufnr].textwidth = 0
   vim.bo[M.input_bufnr].formatoptions = ""
+  set_input_hint()
   local opts = { buffer = M.input_bufnr, silent = true }
   vim.keymap.set({ "n", "i" }, "<CR>", function()
     M.submit()
@@ -274,6 +288,9 @@ function open_staged_float(g, row, height)
 end
 
 function open_input_float(g, row)
+  local config = require("aporia.config").options
+  local p = config.providers[config.provider] or {}
+  local label = p.model ~= "" and p.model or config.provider
   M.input_winid = vim.api.nvim_open_win(M.input_bufnr, false, {
     relative = "editor",
     row = row,
@@ -290,11 +307,7 @@ function open_input_float(g, row)
   wo.cursorline = false
   wo.colorcolumn = ""
   wo.statuscolumn = "%#AporiaAccent#▌ "
-  local config = require("aporia.config").options
-  local p = config.providers[config.provider] or {}
-  local label = p.model ~= "" and p.model or config.provider
   wo.winbar = "%#AporiaInputTitle# ▢ %#AporiaWinBar#Tutor · " .. label .. " "
-  wo.statusline = "%#AporiaHint# esc leaves insert %=%#AporiaHint#<CR> send · <C-j> newline · q hide "
   wo.winhighlight = "FloatBorder:AporiaBorder,Normal:NormalFloat"
 end
 
@@ -341,6 +354,7 @@ function M.reset()
   require("aporia.context").clear()
   if M.input_bufnr and vim.api.nvim_buf_is_valid(M.input_bufnr) then
     vim.api.nvim_buf_set_lines(M.input_bufnr, 0, -1, false, { "" })
+    set_input_hint()
   end
   M.render()
   notify("aporia: session reset")
@@ -364,6 +378,7 @@ function M.submit()
   end
   table.insert(M.messages, { role = "user", content = text, time = os.date("%H:%M") })
   vim.api.nvim_buf_set_lines(M.input_bufnr, 0, -1, false, { "" })
+  set_input_hint()
   M._request()
 end
 
