@@ -1,0 +1,93 @@
+*aporia.txt*   An AI tutor that never writes code
+
+Author:   Simon
+License:  MIT license
+
+==============================================================================
+INTRODUCTION                                                        *aporia*
+
+Aporia is a Neovim plugin that provides a large language model strictly as a
+tutor. It can never write into your buffers, never acts unprompted, and every
+interaction is a named exercise against a known learning trap.
+
+Design guarantees:
+  • No buffer writes - there is no code path that edits your code
+  • No unprompted output - nothing appears without a keypress
+  • One keymap per trap - no generic "ask AI anything" binding
+  • Questions before answers - the tutor makes you think
+  • Verification paths - every claim carries a doc you can check
+
+==============================================================================
+SETUP                                                         *aporia-setup*
+
+>lua
+  {
+    dir = "~/Repos/aporia.nvim",
+    cmd = "Aporia",
+    keys = { "<leader>aq", "<leader>ah", "<leader>ar",
+             "<leader>as", "<leader>ac", "<leader>al",
+             "<leader>at", "<leader>aa", "<leader>ab" },
+    opts = {
+      provider = "baseten",
+      providers = {
+        baseten = {
+          base_url = "https://inference.baseten.co/v1",
+          model = "your-model-id",
+          api_key_env = "BASETEN_API_KEY",
+        },
+      },
+    },
+  }
+<
+
+==============================================================================
+COMMANDS                                                    *aporia-commands*
+
+:Aporia [sub]                                                 *:Aporia*
+    Without argument: toggle the chat window.
+    Subcommands: toggle, reset, add, addbuffer, question, hint, reframe,
+    steps, rootcause, log.
+
+==============================================================================
+KEYMAPS                                                      *aporia-keymaps*
+
+<leader>aq     Question check (Forming)
+<leader>ah     Hint ladder (Dislodging)
+<leader>ar     Reframe (Assumption)
+<leader>as     Step audit (Location)
+<leader>ac     Root-cause challenge (Achievement)
+<leader>al     Log what I learned (Progression)
+<leader>at     Toggle chat window
+<leader>aa     Stage visual selection as context
+<leader>ab     Stage whole buffer as context
+
+Inside the chat window:
+<CR>           Send the text below the separator
+<C-j>          Newline while composing
+q              Hide the window
+
+==============================================================================
+TRAPS                                                          *aporia-traps*
+
+Forming      Right question, wrong answer         <leader>aq
+Dislodging   Stuck in a rut                       <leader>ah
+Assumption   Solving the wrong problem            <leader>ar
+Location     Skipping critical steps              <leader>as
+Achievement  Fixing instead of root-cause         <leader>ac
+Progression  Falling behind without noticing      <leader>al
+
+The AI-introduced traps (Interruption, Mislead) are handled structurally:
+the plugin has no completion source, no auto-trigger, and every fetch of
+external documentation passes through the gate configured in |aporia-config|.
+
+==============================================================================
+CONFIG                                                         *aporia-config*
+
+fetch.mode     "links" | "confirm" | "auto" (default "confirm")
+fetch.max_fetches_per_turn  (default 2)
+context.padding             lines of surrounding context staged with a
+                            selection (default 15)
+context.max_lines           truncation cap per staged block (default 200)
+log_file                    learning log path (default ~/notes/learning.md)
+
+vim:tw=78:ts=8:noet:ft=help:norl:
