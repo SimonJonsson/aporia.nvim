@@ -218,6 +218,10 @@ local function focus_chat()
   pcall(vim.api.nvim_win_set_cursor, M.winid, { vim.api.nvim_buf_line_count(M.bufnr), 0 })
 end
 
+local function staged_open()
+  return M.staged_winid ~= nil and vim.api.nvim_win_is_valid(M.staged_winid)
+end
+
 local function create_chat_buffer()
   M.bufnr = vim.api.nvim_create_buf(false, true)
   vim.bo[M.bufnr].filetype = "markdown"
@@ -229,7 +233,11 @@ local function create_chat_buffer()
     M.hide()
   end, { buffer = M.bufnr, silent = true })
   vim.keymap.set("n", "<C-j>", function()
-    M.focus()
+    if staged_open() then
+      vim.api.nvim_set_current_win(M.staged_winid)
+    else
+      M.focus()
+    end
   end, { buffer = M.bufnr, silent = true })
   pcall(vim.treesitter.start, M.bufnr, "markdown")
 end
@@ -241,7 +249,7 @@ local function set_input_chrome()
   vim.api.nvim_buf_clear_namespace(M.input_bufnr, NS_INPUT, 0, -1)
   local last = vim.api.nvim_buf_line_count(M.input_bufnr) - 1
   vim.api.nvim_buf_set_extmark(M.input_bufnr, NS_INPUT, last, 0, {
-    virt_lines = { { { " <CR> send · <C-j> newline · <C-k> chat · q hide · esc leaves insert", "AporiaHint" } } },
+    virt_lines = { { { " <CR> send · <C-j> newline · <C-k> up · q hide · esc leaves insert", "AporiaHint" } } },
   })
 end
 
@@ -259,7 +267,11 @@ local function create_input_buffer()
   vim.keymap.set("i", "<C-j>", "<CR>", opts)
   vim.keymap.set({ "n", "i" }, "<C-k>", function()
     vim.cmd("stopinsert")
-    focus_chat()
+    if staged_open() then
+      vim.api.nvim_set_current_win(M.staged_winid)
+    else
+      focus_chat()
+    end
   end, opts)
   vim.keymap.set("n", "q", function()
     M.hide()
@@ -273,6 +285,12 @@ function create_staged_buffer()
   vim.keymap.set("n", "d", function()
     require("aporia.context").unstage(vim.fn.line(".") - 1)
     M.render()
+  end, { buffer = M.staged_bufnr, silent = true })
+  vim.keymap.set("n", "<C-k>", function()
+    focus_chat()
+  end, { buffer = M.staged_bufnr, silent = true })
+  vim.keymap.set("n", "<C-j>", function()
+    M.focus()
   end, { buffer = M.staged_bufnr, silent = true })
   vim.keymap.set("n", "q", function()
     M.hide()

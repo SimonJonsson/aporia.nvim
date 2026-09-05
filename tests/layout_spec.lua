@@ -89,10 +89,6 @@ describe("aporia sidebar layout", function()
     assert.is_true(vim.api.nvim_buf_line_count(c.bufnr) <= vim.api.nvim_win_get_height(c.winid))
   end)
 
-function chat_height_minus_winbar(w)
-  return vim.api.nvim_win_get_height(w) - 1
-end
-
   it("lists short refs in the staged box", function()
     c.open()
     vim.cmd("new /tmp/aporia_test/demo.lua")
@@ -104,6 +100,33 @@ end
     local lines = vim.api.nvim_buf_get_lines(c.staged_bufnr, 0, -1, false)
     assert.is_truthy(lines[1]:find("staged"))
     assert.equals("/tmp/aporia_test/demo.lua 2-2", lines[3]:gsub("^%s+", ""))
+    vim.cmd("close")
+  end)
+
+  it("hops C-k/C-j across chat, staged and input", function()
+    c.open()
+    vim.cmd("new /tmp/aporia_test/demo.lua")
+    local buf = vim.api.nvim_get_current_buf()
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "a", "b", "c", "d" })
+    vim.api.nvim_set_current_win(c.input_winid)
+    ctx.stage_buffer()
+    c.render()
+    assert.is_truthy(c.staged_winid and vim.api.nvim_win_is_valid(c.staged_winid))
+
+    local function hop(key)
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes(key, true, false, true), "mx", false)
+    end
+
+    hop("<C-k>")
+    assert.equals(c.staged_winid, vim.api.nvim_get_current_win())
+    hop("<C-k>")
+    assert.equals(c.winid, vim.api.nvim_get_current_win())
+    hop("<C-j>")
+    assert.equals(c.staged_winid, vim.api.nvim_get_current_win())
+    hop("<C-j>")
+    assert.equals(c.input_winid, vim.api.nvim_get_current_win())
+    hop("<C-k>")
+    assert.equals(c.staged_winid, vim.api.nvim_get_current_win())
     vim.cmd("close")
   end)
 end)
