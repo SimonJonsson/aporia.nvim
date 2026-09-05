@@ -222,6 +222,18 @@ local function staged_open()
   return M.staged_winid ~= nil and vim.api.nvim_win_is_valid(M.staged_winid)
 end
 
+local function clear_chat()
+  if #M.messages == 0 then
+    return
+  end
+  if vim.fn.confirm("Clear the conversation? (staged context is kept)", "&Yes\n&No", 2) ~= 1 then
+    return
+  end
+  M.messages = {}
+  M.render()
+  notify("aporia: conversation cleared")
+end
+
 local function create_chat_buffer()
   M.bufnr = vim.api.nvim_create_buf(false, true)
   vim.bo[M.bufnr].filetype = "markdown"
@@ -232,6 +244,7 @@ local function create_chat_buffer()
   vim.keymap.set("n", "q", function()
     M.hide()
   end, { buffer = M.bufnr, silent = true })
+  vim.keymap.set("n", "x", clear_chat, { buffer = M.bufnr, silent = true })
   vim.keymap.set("n", "<C-j>", function()
     if staged_open() then
       vim.api.nvim_set_current_win(M.staged_winid)
@@ -249,7 +262,7 @@ local function set_input_chrome()
   vim.api.nvim_buf_clear_namespace(M.input_bufnr, NS_INPUT, 0, -1)
   local last = vim.api.nvim_buf_line_count(M.input_bufnr) - 1
   vim.api.nvim_buf_set_extmark(M.input_bufnr, NS_INPUT, last, 0, {
-    virt_lines = { { { " <CR> send · <C-j> newline · <C-k> up · q hide · esc leaves insert", "AporiaHint" } } },
+    virt_lines = { { { " <CR> send · <C-j> newline · <C-k> up · x clear · q hide", "AporiaHint" } } },
   })
 end
 
@@ -276,6 +289,7 @@ local function create_input_buffer()
   vim.keymap.set("n", "q", function()
     M.hide()
   end, opts)
+  vim.keymap.set("n", "x", clear_chat, opts)
 end
 
 function create_staged_buffer()
