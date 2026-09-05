@@ -210,6 +210,14 @@ function M.render()
   render_staged(blocks, staged_lines, headers)
 end
 
+local function focus_chat()
+  if not (M.winid and vim.api.nvim_win_is_valid(M.winid)) then
+    return
+  end
+  vim.api.nvim_set_current_win(M.winid)
+  pcall(vim.api.nvim_win_set_cursor, M.winid, { vim.api.nvim_buf_line_count(M.bufnr), 0 })
+end
+
 local function create_chat_buffer()
   M.bufnr = vim.api.nvim_create_buf(false, true)
   vim.bo[M.bufnr].filetype = "markdown"
@@ -219,6 +227,9 @@ local function create_chat_buffer()
   vim.bo[M.bufnr].formatoptions = ""
   vim.keymap.set("n", "q", function()
     M.hide()
+  end, { buffer = M.bufnr, silent = true })
+  vim.keymap.set("n", "<C-j>", function()
+    M.focus()
   end, { buffer = M.bufnr, silent = true })
   pcall(vim.treesitter.start, M.bufnr, "markdown")
 end
@@ -230,7 +241,7 @@ local function set_input_chrome()
   vim.api.nvim_buf_clear_namespace(M.input_bufnr, NS_INPUT, 0, -1)
   local last = vim.api.nvim_buf_line_count(M.input_bufnr) - 1
   vim.api.nvim_buf_set_extmark(M.input_bufnr, NS_INPUT, last, 0, {
-    virt_lines = { { { " <CR> send · <C-j> newline · q hide · esc leaves insert", "AporiaHint" } } },
+    virt_lines = { { { " <CR> send · <C-j> newline · <C-k> chat · q hide · esc leaves insert", "AporiaHint" } } },
   })
 end
 
@@ -246,6 +257,10 @@ local function create_input_buffer()
     M.submit()
   end, opts)
   vim.keymap.set("i", "<C-j>", "<CR>", opts)
+  vim.keymap.set({ "n", "i" }, "<C-k>", function()
+    vim.cmd("stopinsert")
+    focus_chat()
+  end, opts)
   vim.keymap.set("n", "q", function()
     M.hide()
   end, opts)
