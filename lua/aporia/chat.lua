@@ -146,6 +146,14 @@ local function render_chat()
   end
   vim.list_extend(padded, out)
 
+  local was_at_bottom = true
+  if M.winid and vim.api.nvim_win_is_valid(M.winid) then
+    local info = vim.fn.getwininfo(M.winid)[1]
+    if info then
+      was_at_bottom = info.topline + info.height >= vim.api.nvim_buf_line_count(M.bufnr) - 1
+    end
+  end
+
   vim.bo[M.bufnr].modifiable = true
   vim.api.nvim_buf_set_lines(M.bufnr, 0, -1, false, padded)
   vim.bo[M.bufnr].modifiable = false
@@ -156,6 +164,10 @@ local function render_chat()
       hl_eol = true,
       hl_group = hl_group,
     })
+  end
+
+  if was_at_bottom and M.winid and vim.api.nvim_win_is_valid(M.winid) then
+    pcall(vim.api.nvim_win_set_cursor, M.winid, { vim.api.nvim_buf_line_count(M.bufnr), 0 })
   end
 end
 local function render_staged(blocks, staged_lines, headers)
