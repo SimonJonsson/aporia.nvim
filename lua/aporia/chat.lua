@@ -128,6 +128,14 @@ end
 
 M.geometry = geometry
 
+local function scroll_bottom()
+  if not (M.winid and vim.api.nvim_win_is_valid(M.winid)) then
+    return
+  end
+  pcall(vim.api.nvim_win_set_cursor, M.winid, { vim.api.nvim_buf_line_count(M.bufnr), 0 })
+  pcall(vim.fn.win_execute, M.winid, "setlocal scrolloff=0 | normal! Gzb")
+end
+
 local function render_chat()
   local out = {}
   local hls = {}
@@ -270,7 +278,7 @@ local function render_chat()
     local last = vim.api.nvim_buf_line_count(M.bufnr)
     if info then
       if was_at_bottom then
-        pcall(vim.api.nvim_win_set_cursor, M.winid, { last, 0 })
+        scroll_bottom()
       elseif last <= info.height then
         pcall(vim.api.nvim_win_set_cursor, M.winid, { 1, 0 })
       end
@@ -369,6 +377,11 @@ local function create_chat_buffer()
     end
     M.render()
     pcall(vim.api.nvim_win_set_cursor, M.winid, { line, 0 })
+    local info = vim.fn.getwininfo(M.winid)[1]
+    local last = vim.api.nvim_buf_line_count(M.bufnr)
+    if info and info.topline + info.height - 1 > last then
+      scroll_bottom()
+    end
   end, { buffer = M.bufnr, silent = true })
   vim.keymap.set("n", "<C-j>", function()
     if staged_open() then
