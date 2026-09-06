@@ -190,4 +190,47 @@ describe("aporia sidebar layout", function()
     assert.equals(2, select(2, text:gsub("▸ system prompt", "")), "system prompt fold per user turn")
     assert.falsy(text:find("You are a programming tutor", 1, true))
   end)
+
+  it("renders one fold per staged file with a code background", function()
+    c.open()
+    table.insert(c.messages, {
+      role = "user",
+      question = "two files",
+      context = "```lua\na = 1\n```\n\n```lua\nb = 2\n```",
+      context_blocks = {
+        { short = "a.lua 1-1", block = "```lua\na = 1\n```" },
+        { short = "b.lua 1-1", block = "```lua\nb = 2\n```" },
+      },
+      full = "two files\n\n```lua\na = 1\n```\n\n```lua\nb = 2\n```",
+      system = "You are a programming tutor.",
+      time = "00:00",
+    })
+    c.render()
+    local lines = vim.api.nvim_buf_get_lines(c.bufnr, 0, -1, false)
+    local text = table.concat(lines, "\n")
+    assert.is_truthy(text:find("▸ a.lua 1%-1 · za to expand"), "first file fold missing")
+    assert.is_truthy(text:find("▸ b.lua 1%-1 · za to expand"), "second file fold missing")
+    assert.is_truthy(text:find("▸ full prompt", 1, true), "full prompt fold missing for layered message")
+    local marks = vim.api.nvim_buf_get_extmarks(c.bufnr, vim.api.nvim_get_namespaces()["aporia"] or 0, 0, -1, { details = true })
+    local saw_code = false
+    for _, m in ipairs(marks) do
+      if m[4].hl_group == "AporiaCode" then
+        saw_code = true
+      end
+    end
+    assert.is_truthy(saw_code, "no AporiaCode background applied")
+
+    local fold_line = nil
+    for i, l in ipairs(lines) do
+      if l:find("▸ a.lua", 1, true) then
+        fold_line = i
+      end
+    end
+    vim.api.nvim_set_current_win(c.winid)
+    vim.api.nvim_win_set_cursor(c.winid, { fold_line, 0 })
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("za", true, false, true), "mx", false)
+    text = table.concat(vim.api.nvim_buf_get_lines(c.bufnr, 0, -1, false), "\n")
+    assert.is_truthy(text:find("▾ a.lua 1%-1", 1, false), "per-file za toggle failed")
+    assert.is_truthy(text:find("a = 1", 1, true), "expanded file missing code")
+  end)
 end)

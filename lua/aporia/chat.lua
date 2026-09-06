@@ -21,6 +21,24 @@ local function notify(msg, level)
 end
 
 local function set_highlights()
+  local normal = vim.api.nvim_get_hl(0, { name = "Normal", link = false })
+  local code
+  if normal and normal.bg then
+    local function dim(c)
+      return math.floor(c * 0.85)
+    end
+    code = {
+      bg = bit.bor(
+        bit.lshift(dim(bit.band(bit.rshift(normal.bg, 16), 0xff)), 16),
+        bit.bor(
+          bit.lshift(dim(bit.band(bit.rshift(normal.bg, 8), 0xff)), 8),
+          dim(bit.band(normal.bg, 0xff))
+        )
+      ),
+    }
+  else
+    code = { link = "CursorColumn" }
+  end
   local groups = {
     AporiaWinBar = { link = "Title", bold = true },
     AporiaUser = { link = "Question" },
@@ -30,6 +48,7 @@ local function set_highlights()
     AporiaAccent = { link = "Keyword" },
     AporiaInputTitle = { link = "Title" },
     AporiaBorder = { link = "Comment" },
+    AporiaCode = code,
   }
   for name, def in pairs(groups) do
     vim.api.nvim_set_hl(0, name, def)
@@ -133,24 +152,51 @@ local function render_chat()
       if m.question and m.question ~= "" then
         vim.list_extend(out, vim.split(m.question, "\n"))
       end
-      local function fold(kind, label, body)
+      local function add_body(body, code_all)
+        local start = #out
+        vim.list_extend(out, vim.split(body, "\n"))
+        if code_all then
+          for l = start + 1, #out do
+            hls[l] = "AporiaCode"
+          end
+        else
+          local inside = false
+          for l = start + 1, #out do
+            if out[l]:find("^```") then
+              inside = not inside
+              hls[l] = "AporiaCode"
+            elseif inside then
+              hls[l] = "AporiaCode"
+            end
+          end
+        end
+      end
+      local function fold(kind, label, body, code_all)
         if not body or body == "" then
           return
         end
         if m["expanded_" .. kind] then
           add("▾ " .. label .. " · za to collapse", "AporiaHint")
-          vim.list_extend(out, vim.split(body, "\n"))
+          add_body(body, code_all)
         else
           add("▸ " .. label .. " · za to expand", "AporiaHint")
         end
         M._ctx_line_map[#out] = { i, kind }
       end
-      local full_dupes_context = m.context ~= nil and m.full == m.question .. "\n\n" .. m.context
-      if m.full and not full_dupes_context then
-        fold("full", "full prompt", m.full)
+      local full_redundant = m.full == nil
+        or m.full == m.question
+        or (m.context ~= nil and m.full == m.question .. "\n\n" .. m.context)
+      if m.full and not full_redundant then
+        fold("full", "full prompt", m.full, false)
       end
-      fold("context", "staged context", m.context)
-      fold("system", "system prompt", m.system)
+      if m.context_blocks then
+        for j, b in ipairs(m.context_blocks) do
+          fold("context" .. j, b.short or b.header or "staged context", b.block, true)
+        end
+      elseif m.context then
+        fold("context", "staged context", m.context, true)
+      end
+      fold("system", "system prompt", m.system, false)
     else
       add(ICONS.tutor .. " Tutor · " .. m.time, "AporiaTutor")
       vim.list_extend(out, vim.split(m.content, "\n"))
@@ -546,12 +592,19 @@ function M.submit()
   if text == "" then
     return
   end
-  local block = require("aporia.context").consume()
+  local block_list = require("aporia.context").consume_blocks()
+  local concat = table.concat(
+    vim.tbl_map(function(b)
+      return b.block
+    end, block_list),
+    "\n\n"
+  )
   table.insert(M.messages, {
     role = "user",
     question = text,
-    context = block ~= "" and block or nil,
-    full = text .. (block ~= "" and ("\n\n" .. block) or ""),
+    context = concat ~= "" and concat or nil,
+    context_blocks = #block_list > 0 and block_list or nil,
+    full = text .. (concat ~= "" and ("\n\n" .. concat) or ""),
     system = require("aporia.prompts").system_prompt,
     time = os.date("%H:%M"),
   })

@@ -110,16 +110,21 @@ function M.summary()
   return blocks, lines
 end
 
-function M.consume()
+function M.consume_blocks()
   if #M.staged == 0 then
-    return ""
+    return {}
   end
-  local blocks = {}
-  for _, item in ipairs(M.staged) do
-    blocks[#blocks + 1] = item.block
-  end
+  local blocks = M.staged
   M.staged = {}
-  return table.concat(blocks, "\n\n")
+  return blocks
+end
+
+function M.consume()
+  local parts = {}
+  for _, item in ipairs(M.consume_blocks()) do
+    parts[#parts + 1] = item.block
+  end
+  return table.concat(parts, "\n\n")
 end
 
 function M.clear()
