@@ -272,6 +272,7 @@ local function create_input_buffer()
   vim.bo[M.input_bufnr].swapfile = false
   vim.bo[M.input_bufnr].textwidth = 0
   vim.bo[M.input_bufnr].formatoptions = ""
+  vim.b[M.input_bufnr].completion = false
   set_input_chrome()
   local opts = { buffer = M.input_bufnr, silent = true }
   vim.keymap.set({ "n", "i" }, "<CR>", function()
