@@ -26,10 +26,13 @@ function M.setup(opts)
     require("aporia.chat").toggle()
   end, { desc = "Aporia: toggle chat" })
   map({ "n", "v" }, m.add_selection, function()
-    require("aporia.context").stage_selection()
+    if require("aporia.context").stage_selection() then
+      require("aporia.chat").open()
+    end
   end, { desc = "Aporia: stage selection" })
   map({ "n", "v" }, m.add_buffer, function()
     require("aporia.context").stage_buffer()
+    require("aporia.chat").open()
   end, { desc = "Aporia: stage buffer" })
   return M
 end

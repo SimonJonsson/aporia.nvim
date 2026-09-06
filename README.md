@@ -40,6 +40,9 @@ where you type. `<CR>` sends, `<C-j>` breaks the line, `q` hides the sidebar.
   cmd = "Aporia",
   keys = { "<leader>aq", "<leader>ah", "<leader>ar", "<leader>as",
            "<leader>ac", "<leader>al", "<leader>at", "<leader>aa", "<leader>ab" },
+  -- if you list keys explicitly, give them their modes so visual-mode
+  -- staging works from a cold start:
+  -- keys = { { "<leader>aa", mode = { "n", "v" } }, ... }
   opts = {
     provider = "baseten",
     providers = {

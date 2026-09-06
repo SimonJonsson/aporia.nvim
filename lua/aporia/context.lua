@@ -38,6 +38,14 @@ local function build(kind, bufnr, sel_from, sel_to, from, to)
 end
 
 local function selection_range(bufnr)
+  if vim.fn.mode():match("^%s*[vV]") and vim.api.nvim_get_current_buf() == bufnr then
+    local s = vim.fn.line("v")
+    local e = vim.fn.line(".")
+    if s > e then
+      s, e = e, s
+    end
+    return s, e
+  end
   local s = vim.fn.line("'<")
   local e = vim.fn.line("'>")
   if s <= 0 or e < s then
@@ -62,7 +70,8 @@ function M.stage_selection()
   local opts = require("aporia.config").options.context
   local s, e = selection_range(bufnr)
   if not s then
-    return vim.notify("aporia: no visual selection", vim.log.levels.WARN)
+    vim.notify("aporia: no visual selection", vim.log.levels.WARN)
+    return false
   end
   local total = vim.api.nvim_buf_line_count(bufnr)
   local item = build("selection", bufnr, s, e, math.max(1, s - opts.padding), math.min(total, e + opts.padding))
@@ -72,6 +81,7 @@ function M.stage_selection()
     chat.render()
   end
   vim.notify("aporia: staged " .. item.header)
+  return true
 end
 
 function M.stage_buffer()
