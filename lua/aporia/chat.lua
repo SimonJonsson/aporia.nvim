@@ -130,16 +130,27 @@ local function render_chat()
     out[#out + 1] = ""
     if m.role == "user" then
       add(ICONS.user .. " You · " .. m.time, "AporiaUser")
-      vim.list_extend(out, vim.split(m.question or "", "\n"))
-      if m.context and m.context ~= "" then
-        if m.expanded then
-          add("▾ staged context · za to collapse", "AporiaHint")
-          vim.list_extend(out, vim.split(m.context, "\n"))
-        else
-          add("▸ staged context · za to expand", "AporiaHint")
-        end
-        M._ctx_line_map[#out] = i
+      if m.question and m.question ~= "" then
+        vim.list_extend(out, vim.split(m.question, "\n"))
       end
+      local function fold(kind, label, body)
+        if not body or body == "" then
+          return
+        end
+        if m["expanded_" .. kind] then
+          add("▾ " .. label .. " · za to collapse", "AporiaHint")
+          vim.list_extend(out, vim.split(body, "\n"))
+        else
+          add("▸ " .. label .. " · za to expand", "AporiaHint")
+        end
+        M._ctx_line_map[#out] = { i, kind }
+      end
+      local full_dupes_context = m.context ~= nil and m.full == m.question .. "\n\n" .. m.context
+      if m.full and not full_dupes_context then
+        fold("full", "full prompt", m.full)
+      end
+      fold("context", "staged context", m.context)
+      fold("system", "system prompt", m.system)
     else
       add(ICONS.tutor .. " Tutor · " .. m.time, "AporiaTutor")
       vim.list_extend(out, vim.split(m.content, "\n"))
@@ -264,12 +275,13 @@ local function create_chat_buffer()
   vim.keymap.set("n", "x", clear_chat, { buffer = M.bufnr, silent = true })
   vim.keymap.set("n", "za", function()
     local line = vim.fn.line(".")
-    local idx = M._ctx_line_map and M._ctx_line_map[line]
-    local m = idx and M.messages[idx]
+    local ref = M._ctx_line_map and M._ctx_line_map[line]
+    local m = ref and M.messages[ref[1]]
     if not m then
       return
     end
-    m.expanded = not m.expanded
+    local kind = ref[2]
+    m["expanded_" .. kind] = not m["expanded_" .. kind]
     M.render()
     pcall(vim.api.nvim_win_set_cursor, M.winid, { line, 0 })
   end, { buffer = M.bufnr, silent = true })
@@ -539,6 +551,8 @@ function M.submit()
     role = "user",
     question = text,
     context = block ~= "" and block or nil,
+    full = text .. (block ~= "" and ("\n\n" .. block) or ""),
+    system = require("aporia.prompts").system_prompt,
     time = os.date("%H:%M"),
   })
   vim.api.nvim_buf_set_lines(M.input_bufnr, 0, -1, false, { "" })
@@ -550,9 +564,12 @@ local function api_messages()
   local out = { { role = "system", content = require("aporia.prompts").system_prompt } }
   for _, m in ipairs(M.messages) do
     if m.role == "user" then
-      local content = m.question or ""
-      if m.context and m.context ~= "" then
-        content = content .. "\n\n" .. m.context
+      local content = m.full
+      if not content then
+        content = m.question or ""
+        if m.context and m.context ~= "" then
+          content = content .. "\n\n" .. m.context
+        end
       end
       out[#out + 1] = { role = "user", content = content }
     elseif m.content ~= GENERATING then
@@ -602,7 +619,13 @@ function M.trap(name)
     return block.block
   end)
   M.open()
-  table.insert(M.messages, { role = "user", content = msg, time = os.date("%H:%M") })
+  table.insert(M.messages, {
+    role = "user",
+    question = input,
+    full = msg,
+    system = require("aporia.prompts").system_prompt,
+    time = os.date("%H:%M"),
+  })
   if name == "log" then
     M._request({ on_reply = function(content)
       require("aporia.log").run(content)

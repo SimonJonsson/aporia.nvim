@@ -166,4 +166,28 @@ describe("aporia sidebar layout", function()
     assert.is_truthy(saw_block, "expanded context missing code block")
     assert.is_truthy(saw_marker, "expanded marker missing")
   end)
+
+  it("folds the full prompt for trap messages and the system prompt for every turn", function()
+    c.open()
+    table.insert(c.messages, {
+      role = "user",
+      question = "what I have done so far",
+      full = "Here is what I have done so far to debug this:\nwhat I have done so far\n\nCode: ```lua\nx = 1\n```",
+      system = "You are a programming tutor.",
+      time = "00:00",
+    })
+    table.insert(c.messages, {
+      role = "user",
+      question = "plain question",
+      full = "plain question",
+      system = "You are a programming tutor.",
+      time = "00:01",
+    })
+    c.render()
+    local text = table.concat(vim.api.nvim_buf_get_lines(c.bufnr, 0, -1, false), "\n")
+    assert.is_truthy(text:find("▸ full prompt", 1, true), "trap full-prompt fold missing")
+    assert.falsy(text:find("▸ staged context", 1, true), "trap should not duplicate a staged-context fold")
+    assert.equals(2, select(2, text:gsub("▸ system prompt", "")), "system prompt fold per user turn")
+    assert.falsy(text:find("You are a programming tutor", 1, true))
+  end)
 end)
