@@ -248,6 +248,7 @@ describe("aporia sidebar layout", function()
       time = "00:00",
     }
     table.insert(c.messages, msg)
+    msg.expanded_system = true
     c.render()
     local lines = vim.api.nvim_buf_get_lines(c.bufnr, 0, -1, false)
     local text = table.concat(lines, "\n")
@@ -292,5 +293,21 @@ describe("aporia sidebar layout", function()
       "I am about to commit this change. Challenge it.\nChange: ```lua\nlocal cache = {}\n```\nOne more thing.",
       table.concat(pieces, "")
     )
+
+    for _, kind in ipairs({ "system", "demo2.lua" }) do
+      lines = vim.api.nvim_buf_get_lines(c.bufnr, 0, -1, false)
+      local hdr
+      for i, l in ipairs(lines) do
+        if l:find("▾ " .. kind, 1, true) then
+          hdr = i
+        end
+      end
+      assert.is_truthy(hdr, "expanded " .. kind .. " header missing before collapse")
+      vim.api.nvim_win_set_cursor(c.winid, { hdr, 0 })
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("za", true, false, true), "mx", false)
+      text = table.concat(vim.api.nvim_buf_get_lines(c.bufnr, 0, -1, false), "\n")
+      assert.is_truthy(text:find("▸ " .. kind, 1, true), "za on expanded " .. kind .. " header did not collapse")
+      assert.falsy(text:find("▾ " .. kind, 1, true), kind .. " still expanded after za")
+    end
   end)
 end)

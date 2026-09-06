@@ -177,11 +177,12 @@ local function render_chat()
         end
         if m["expanded_" .. kind] then
           add("▾ " .. label .. " · za to collapse", "AporiaHint")
+          M._ctx_line_map[#out] = { i, kind }
           add_body(body, code_all)
         else
           add("▸ " .. label .. " · za to expand", "AporiaHint")
+          M._ctx_line_map[#out] = { i, kind }
         end
-        M._ctx_line_map[#out] = { i, kind }
       end
       if m.parts then
         if m.expanded_full then
@@ -194,11 +195,12 @@ local function render_chat()
               local label = part.short or "staged code"
               if part.expanded then
                 add("▾ " .. label .. " · za to collapse", "AporiaHint")
+                M._ctx_line_map[#out] = { i, "part", pi }
                 add_body(part.block, true)
               else
                 add("▸ " .. label .. " · za to expand", "AporiaHint")
+                M._ctx_line_map[#out] = { i, "part", pi }
               end
-              M._ctx_line_map[#out] = { i, "part", pi }
             end
           end
         else
@@ -237,7 +239,6 @@ local function render_chat()
     offset_map[line + pad] = idx
   end
   M._ctx_line_map = offset_map
-  local pad = math.max(0, content_height - #out)
   local padded = {}
   for _ = 1, pad do
     padded[#padded + 1] = ""
