@@ -183,18 +183,42 @@ local function render_chat()
         end
         M._ctx_line_map[#out] = { i, kind }
       end
-      local full_redundant = m.full == nil
-        or m.full == m.question
-        or (m.context ~= nil and m.full == m.question .. "\n\n" .. m.context)
-      if m.full and not full_redundant then
-        fold("full", "full prompt", m.full, false)
-      end
-      if m.context_blocks then
-        for j, b in ipairs(m.context_blocks) do
-          fold("context" .. j, b.short or b.header or "staged context", b.block, true)
+      if m.parts then
+        if m.expanded_full then
+          add("▾ full prompt · za to collapse", "AporiaHint")
+          M._ctx_line_map[#out] = { i, "full" }
+          for pi, part in ipairs(m.parts) do
+            if part.text ~= nil then
+              add_body(part.text, false)
+            else
+              local label = part.short or "staged code"
+              if part.expanded then
+                add("▾ " .. label .. " · za to collapse", "AporiaHint")
+                add_body(part.block, true)
+              else
+                add("▸ " .. label .. " · za to expand", "AporiaHint")
+              end
+              M._ctx_line_map[#out] = { i, "part", pi }
+            end
+          end
+        else
+          add("▸ full prompt · za to expand", "AporiaHint")
+          M._ctx_line_map[#out] = { i, "full" }
         end
-      elseif m.context then
-        fold("context", "staged context", m.context, true)
+      else
+        local full_redundant = m.full == nil
+          or m.full == m.question
+          or (m.context ~= nil and m.full == m.question .. "\n\n" .. m.context)
+        if m.full and not full_redundant then
+          fold("full", "full prompt", m.full, false)
+        end
+        if m.context_blocks then
+          for j, b in ipairs(m.context_blocks) do
+            fold("context" .. j, b.short or b.header or "staged context", b.block, true)
+          end
+        elseif m.context then
+          fold("context", "staged context", m.context, true)
+        end
       end
       fold("system", "system prompt", m.system, false)
     else
@@ -326,8 +350,14 @@ local function create_chat_buffer()
     if not m then
       return
     end
-    local kind = ref[2]
-    m["expanded_" .. kind] = not m["expanded_" .. kind]
+    if ref[2] == "part" then
+      local part = m.parts[ref[3]]
+      if part then
+        part.expanded = not part.expanded
+      end
+    else
+      m["expanded_" .. ref[2]] = not m["expanded_" .. ref[2]]
+    end
     M.render()
     pcall(vim.api.nvim_win_set_cursor, M.winid, { line, 0 })
   end, { buffer = M.bufnr, silent = true })
@@ -593,18 +623,14 @@ function M.submit()
     return
   end
   local block_list = require("aporia.context").consume_blocks()
-  local concat = table.concat(
-    vim.tbl_map(function(b)
-      return b.block
-    end, block_list),
-    "\n\n"
-  )
+  local parts = { { text = text } }
+  for _, b in ipairs(block_list) do
+    parts[#parts + 1] = { sep = "\n\n", short = b.short or b.header, block = b.block }
+  end
   table.insert(M.messages, {
     role = "user",
     question = text,
-    context = concat ~= "" and concat or nil,
-    context_blocks = #block_list > 0 and block_list or nil,
-    full = text .. (concat ~= "" and ("\n\n" .. concat) or ""),
+    parts = parts,
     system = require("aporia.prompts").system_prompt,
     time = os.date("%H:%M"),
   })
@@ -617,11 +643,20 @@ local function api_messages()
   local out = { { role = "system", content = require("aporia.prompts").system_prompt } }
   for _, m in ipairs(M.messages) do
     if m.role == "user" then
-      local content = m.full
-      if not content then
-        content = m.question or ""
-        if m.context and m.context ~= "" then
-          content = content .. "\n\n" .. m.context
+      local content
+      if m.parts then
+        local pieces = {}
+        for _, part in ipairs(m.parts) do
+          pieces[#pieces + 1] = part.text or (part.sep or "") .. part.block
+        end
+        content = table.concat(pieces, "")
+      else
+        content = m.full
+        if not content then
+          content = m.question or ""
+          if m.context and m.context ~= "" then
+            content = content .. "\n\n" .. m.context
+          end
         end
       end
       out[#out + 1] = { role = "user", content = content }
@@ -665,17 +700,29 @@ function M.trap(name)
   end
   local input = t.ask and vim.trim(vim.fn.input(t.ask .. ": ")) or ""
   local block = require("aporia.context").capture_current()
-  local msg = t.template:gsub("{input}", function()
-    return input
-  end)
-  msg = msg:gsub("{selection}", function()
-    return block.block
-  end)
+  local function fill(s)
+    return (s:gsub("{input}", function()
+      return input
+    end))
+  end
+  local parts
+  local pre, post = t.template:match("^(.-){selection}(.*)$")
+  if pre then
+    parts = {
+      { text = fill(pre) },
+      { sep = "", short = block.short or block.header, block = block.block },
+      { text = fill(post) },
+    }
+  else
+    parts = { { text = fill(t.template:gsub("{selection}", function()
+      return block.block
+    end)) } }
+  end
   M.open()
   table.insert(M.messages, {
     role = "user",
     question = input,
-    full = msg,
+    parts = parts,
     system = require("aporia.prompts").system_prompt,
     time = os.date("%H:%M"),
   })

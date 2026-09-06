@@ -233,4 +233,64 @@ describe("aporia sidebar layout", function()
     assert.is_truthy(text:find("▾ a.lua 1%-1", 1, false), "per-file za toggle failed")
     assert.is_truthy(text:find("a = 1", 1, true), "expanded file missing code")
   end)
+
+  it("always folds the full prompt first, with nested per-file folds inside", function()
+    c.open()
+    local msg = {
+      role = "user",
+      question = "does this memoize correctly?",
+      parts = {
+        { text = "I am about to commit this change. Challenge it.\nChange: " },
+        { sep = "", short = "demo2.lua 1-2", block = "```lua\nlocal cache = {}\n```" },
+        { text = "\nOne more thing." },
+      },
+      system = "You are a programming tutor.",
+      time = "00:00",
+    }
+    table.insert(c.messages, msg)
+    c.render()
+    local lines = vim.api.nvim_buf_get_lines(c.bufnr, 0, -1, false)
+    local text = table.concat(lines, "\n")
+    assert.is_truthy(text:find("▸ full prompt · za to expand"), "full prompt fold missing")
+    assert.falsy(text:find("▸ demo2.lua", 1, true), "nested fold must be hidden while full prompt is folded")
+    assert.falsy(text:find("Challenge it", 1, true), "framing text must be hidden while folded")
+    local full_line
+    for i, l in ipairs(lines) do
+      if l:find("▸ full prompt", 1, true) then
+        full_line = i
+      end
+    end
+
+    vim.api.nvim_set_current_win(c.winid)
+    vim.api.nvim_win_set_cursor(c.winid, { full_line, 0 })
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("za", true, false, true), "mx", false)
+    lines = vim.api.nvim_buf_get_lines(c.bufnr, 0, -1, false)
+    text = table.concat(lines, "\n")
+    assert.is_truthy(text:find("▾ full prompt", 1, false), "full prompt did not expand")
+    assert.is_truthy(text:find("Challenge it", 1, true), "framing text missing when expanded")
+    assert.is_truthy(text:find("▸ demo2.lua 1%-2 · za to expand", 1, false), "nested file fold missing")
+    assert.falsy(text:find("local cache", 1, true), "nested code must stay folded")
+
+    local nested_line
+    for i, l in ipairs(lines) do
+      if l:find("▸ demo2.lua", 1, true) then
+        nested_line = i
+      end
+    end
+    vim.api.nvim_win_set_cursor(c.winid, { nested_line, 0 })
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("za", true, false, true), "mx", false)
+    text = table.concat(vim.api.nvim_buf_get_lines(c.bufnr, 0, -1, false), "\n")
+    assert.is_truthy(text:find("local cache", 1, true), "nested fold did not expand")
+    assert.is_truthy(text:find("▾ demo2.lua 1%-2", 1, false), "nested marker missing")
+    assert.is_truthy(text:find("One more thing", 1, true), "suffix text missing")
+
+    local pieces = {}
+    for _, part in ipairs(msg.parts) do
+      pieces[#pieces + 1] = part.text or (part.sep or "") .. part.block
+    end
+    assert.equals(
+      "I am about to commit this change. Challenge it.\nChange: ```lua\nlocal cache = {}\n```\nOne more thing.",
+      table.concat(pieces, "")
+    )
+  end)
 end)
