@@ -103,8 +103,7 @@ describe("aporia sidebar layout", function()
     vim.cmd("close")
   end)
 
-  it("hops C-k/C-j across chat, staged and input", function()
-    c.open()
+  it("hops C-k/C-j across chat, staged and input", function()    c.open()
     vim.cmd("new /tmp/aporia_test/demo.lua")
     local buf = vim.api.nvim_get_current_buf()
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "a", "b", "c", "d" })
@@ -128,5 +127,43 @@ describe("aporia sidebar layout", function()
     hop("<C-k>")
     assert.equals(c.staged_winid, vim.api.nvim_get_current_win())
     vim.cmd("close")
+  end)
+
+  it("shows the question verbatim with staged context collapsed, za expands", function()
+    c.open()
+    table.insert(c.messages, {
+      role = "user",
+      question = "why does this leak?",
+      context = "```lua\nlocal x = 1\n```",
+      time = "00:00",
+    })
+    c.render()
+    local lines = vim.api.nvim_buf_get_lines(c.bufnr, 0, -1, false)
+    local collapsed = nil
+    for i, l in ipairs(lines) do
+      if l:find("▸ staged context", 1, true) then
+        collapsed = i
+      end
+    end
+    assert.is_truthy(collapsed, "collapsed context line missing")
+    for _, l in ipairs(lines) do
+      assert.falsy(l:find("local x = 1", 1, true))
+    end
+
+    vim.api.nvim_set_current_win(c.winid)
+    vim.api.nvim_win_set_cursor(c.winid, { collapsed, 0 })
+    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("za", true, false, true), "mx", false)
+    lines = vim.api.nvim_buf_get_lines(c.bufnr, 0, -1, false)
+    local saw_block, saw_marker = false, false
+    for _, l in ipairs(lines) do
+      if l:find("local x = 1", 1, true) then
+        saw_block = true
+      end
+      if l:find("▾ staged context", 1, true) then
+        saw_marker = true
+      end
+    end
+    assert.is_truthy(saw_block, "expanded context missing code block")
+    assert.is_truthy(saw_marker, "expanded marker missing")
   end)
 end)

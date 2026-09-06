@@ -112,6 +112,7 @@ M.geometry = geometry
 local function render_chat()
   local out = {}
   local hls = {}
+  M._ctx_line_map = {}
 
   local function add(line, hl_group)
     out[#out + 1] = line
@@ -125,20 +126,36 @@ local function render_chat()
     add("Nothing is sent until you press <CR> in the input box.", "AporiaHint")
   end
 
-  for _, m in ipairs(M.messages) do
+  for i, m in ipairs(M.messages) do
     out[#out + 1] = ""
     if m.role == "user" then
       add(ICONS.user .. " You · " .. m.time, "AporiaUser")
+      vim.list_extend(out, vim.split(m.question or "", "\n"))
+      if m.context and m.context ~= "" then
+        if m.expanded then
+          add("▾ staged context · za to collapse", "AporiaHint")
+          vim.list_extend(out, vim.split(m.context, "\n"))
+        else
+          add("▸ staged context · za to expand", "AporiaHint")
+        end
+        M._ctx_line_map[#out] = i
+      end
     else
       add(ICONS.tutor .. " Tutor · " .. m.time, "AporiaTutor")
+      vim.list_extend(out, vim.split(m.content, "\n"))
     end
-    vim.list_extend(out, vim.split(m.content, "\n"))
   end
 
   local content_height = M.winid
     and vim.api.nvim_win_is_valid(M.winid)
     and (vim.api.nvim_win_get_height(M.winid) - 1)
     or 30
+  local pad = math.max(0, content_height - #out)
+  local offset_map = {}
+  for line, idx in pairs(M._ctx_line_map) do
+    offset_map[line + pad] = idx
+  end
+  M._ctx_line_map = offset_map
   local pad = math.max(0, content_height - #out)
   local padded = {}
   for _ = 1, pad do
@@ -245,6 +262,17 @@ local function create_chat_buffer()
     M.hide()
   end, { buffer = M.bufnr, silent = true })
   vim.keymap.set("n", "x", clear_chat, { buffer = M.bufnr, silent = true })
+  vim.keymap.set("n", "za", function()
+    local line = vim.fn.line(".")
+    local idx = M._ctx_line_map and M._ctx_line_map[line]
+    local m = idx and M.messages[idx]
+    if not m then
+      return
+    end
+    m.expanded = not m.expanded
+    M.render()
+    pcall(vim.api.nvim_win_set_cursor, M.winid, { line, 0 })
+  end, { buffer = M.bufnr, silent = true })
   vim.keymap.set("n", "<C-j>", function()
     if staged_open() then
       vim.api.nvim_set_current_win(M.staged_winid)
@@ -507,13 +535,31 @@ function M.submit()
     return
   end
   local block = require("aporia.context").consume()
-  if block ~= "" then
-    text = text .. "\n\n" .. block
-  end
-  table.insert(M.messages, { role = "user", content = text, time = os.date("%H:%M") })
+  table.insert(M.messages, {
+    role = "user",
+    question = text,
+    context = block ~= "" and block or nil,
+    time = os.date("%H:%M"),
+  })
   vim.api.nvim_buf_set_lines(M.input_bufnr, 0, -1, false, { "" })
   set_input_chrome()
   M._request()
+end
+
+local function api_messages()
+  local out = { { role = "system", content = require("aporia.prompts").system_prompt } }
+  for _, m in ipairs(M.messages) do
+    if m.role == "user" then
+      local content = m.question or ""
+      if m.context and m.context ~= "" then
+        content = content .. "\n\n" .. m.context
+      end
+      out[#out + 1] = { role = "user", content = content }
+    elseif m.content ~= GENERATING then
+      out[#out + 1] = { role = m.role, content = m.content }
+    end
+  end
+  return out
 end
 
 function M._request(opts)
@@ -521,9 +567,7 @@ function M._request(opts)
   M.busy = true
   table.insert(M.messages, { role = "assistant", content = GENERATING, time = os.date("%H:%M") })
   M.render()
-  local prompts = require("aporia.prompts")
-  local msgs = { { role = "system", content = prompts.system_prompt } }
-  vim.list_extend(msgs, M.messages)
+  local msgs = api_messages()
   require("aporia.http").request(msgs, function(err, content)
     M.busy = false
     if err then
