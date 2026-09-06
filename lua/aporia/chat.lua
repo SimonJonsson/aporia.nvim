@@ -265,8 +265,16 @@ local function render_chat()
     })
   end
 
-  if was_at_bottom and M.winid and vim.api.nvim_win_is_valid(M.winid) then
-    pcall(vim.api.nvim_win_set_cursor, M.winid, { vim.api.nvim_buf_line_count(M.bufnr), 0 })
+  if M.winid and vim.api.nvim_win_is_valid(M.winid) then
+    local info = vim.fn.getwininfo(M.winid)[1]
+    local last = vim.api.nvim_buf_line_count(M.bufnr)
+    if info then
+      if was_at_bottom then
+        pcall(vim.api.nvim_win_set_cursor, M.winid, { last, 0 })
+      elseif last <= info.height then
+        pcall(vim.api.nvim_win_set_cursor, M.winid, { 1, 0 })
+      end
+    end
   end
 end
 local function render_staged(blocks, staged_lines, headers)
