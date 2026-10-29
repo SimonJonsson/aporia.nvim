@@ -2,18 +2,28 @@
 
 > *aporia* (Ancient Greek) — a state of puzzlement; the impasse Socrates
 > deliberately drove his interlocutors into, where "I thought I knew" turns
-> into "why did I think I knew?" That state is the product. The tutor's job is
-> to bring you there and leave you there, equipped.
+> into "why did I think I knew?"
+
+aporia is a way of writing code with an LLM while staying fully locked in:
+you write every line, and the model makes you faster and sharper around it.
+It has two modes:
+
+- **Assist** augments you as far as possible short of writing your code. It
+  explains, locates the right API, diagnoses errors, reviews and plans, and
+  answers directly.
+- **Teach** is for the impasses worth having. It runs named exercises against
+  known learning traps and asks questions instead of answering them.
 
 ## Design guarantees
 
-1. **No buffer writes.** There is no code path that edits your code.
+1. **You write the code.** There is no code path that edits your buffers, and
+   neither mode hands you a solution you could paste in.
 2. **No unprompted output.** No completion, no ghost text, no notifications
    without a keypress.
-3. **One keymap per trap.** No generic "ask AI anything" binding.
-4. **Questions before answers.** The tutor's job is to make you think.
-5. **Every claim carries a verification path**, or is flagged "unverified".
-6. **Docs are cheaper than AI.** `K`, `gd`, `:help` stay one keystroke.
+3. **The mode is always explicit.** Assist and teach have their own keys,
+   prompts and conversations; you always know which one you are talking to.
+4. **Every claim carries a verification path**, or is flagged "unverified".
+5. **Docs are cheaper than AI.** `K`, `gd`, `:help` stay one keystroke.
 
 ## Keys
 
@@ -101,7 +111,7 @@ opts = {
 }
 ```
 
-Requests are non-streaming by design: tutor replies are short, and one
+Requests are non-streaming by design: replies are short, and one
 render-once draw keeps the implementation simple and the behaviour inspectable.
 
 ## API keys
@@ -127,7 +137,7 @@ which tier served the key, never the key itself.
 ## Context staging
 
 Staged blocks are attached to your next message, shown in the tray at the
-bottom of the chat, and sent with provenance so the tutor can cite locations:
+bottom of the chat, and sent with provenance so aporia can cite locations:
 
 - `<leader>aa` stages the visual selection plus surrounding context lines,
   marked `From path:start-end`
@@ -137,7 +147,7 @@ bottom of the chat, and sent with provenance so the tutor can cite locations:
 
 ## Documentation fetching
 
-The tutor never browses on its own. Replies contain reference blocks
+aporia never browses on its own. Replies contain reference blocks
 (`name — URL` plus a one-line description). When it needs a page's contents
 it must emit a `FETCH: <url>` line, and what happens then is your friction
 dial:
@@ -153,11 +163,12 @@ opts = {
 
 `links` shows URLs only; `confirm` asks before every fetch; `auto` fetches
 within a turn, bounded by the per-turn limit. Codebase access is not on this
-dial — there is no code path where the tutor reads your repository.
+dial. aporia currently sees only what you stage; letting assist mode navigate
+the codebase itself (LSP, grep, file reads) is planned.
 
 ## Learning log
 
-`<leader>tl` asks the tutor to summarise the session into two lines
+`<leader>tl` asks aporia to summarise the session into two lines
 (`learned:` / `still needed AI for:`), lets you edit them, and appends
 
 ```
@@ -170,10 +181,12 @@ second column stops shrinking over weeks of review, that is the alarm.
 ## Status
 
 Working: chat sidebar with read-only history and dedicated input window,
-provider table (OpenAI-compatible), staging queue with provenance, six trap
-prompts, learning log, fetch gate, keyring-backed key resolution.
-Not yet: treesitter scope expansion for selections, HTML-to-text for fetched
-docs, vimdoc tag generation.
+provider table (OpenAI-compatible), assist and teach modes with separate
+conversations, staging queue with provenance, six trap prompts, learning log,
+fetch gate, three-tier key resolution.
+Not yet: assist-mode codebase navigation (read-only tools), a general fold
+tree for the chat, treesitter scope expansion for selections, HTML-to-text
+for fetched docs, vimdoc tag generation.
 
 ## Development
 

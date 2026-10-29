@@ -1,4 +1,4 @@
-*aporia.txt*   An AI tutor that never writes code
+*aporia.txt*   Code with an LLM, write every line yourself
 
 Author:   Simon
 License:  MIT license
@@ -6,15 +6,21 @@ License:  MIT license
 ==============================================================================
 INTRODUCTION                                                        *aporia*
 
-Aporia is a Neovim plugin that provides a large language model strictly as a
-tutor. It can never write into your buffers, never acts unprompted, and every
-interaction is a named exercise against a known learning trap.
+Aporia is a Neovim plugin for writing code with a large language model while
+staying fully locked in: you write every line, the model works around you.
+It has two modes, each with its own keys, prompt and conversation:
+
+  assist    augments you as far as possible short of writing your code:
+            explains, locates APIs, diagnoses errors, reviews, plans.
+            Keys on <leader>a.                          |aporia-keymaps|
+  teach     named exercises against known learning traps; asks questions
+            instead of answering them. Keys on <leader>t.  |aporia-traps|
 
 Design guarantees:
-  • No buffer writes - there is no code path that edits your code
+  • You write the code - no code path edits your buffers, and neither mode
+    hands you a solution you could paste in
   • No unprompted output - nothing appears without a keypress
-  • One keymap per trap - no generic "ask AI anything" binding
-  • Questions before answers - the tutor makes you think
+  • Explicit mode - you always know whether you are in assist or teach
   • Verification paths - every claim carries a doc you can check
 
 ==============================================================================
@@ -26,7 +32,7 @@ SETUP                                                         *aporia-setup*
     cmd = "Aporia",
     keys = { "<leader>tq", "<leader>th", "<leader>tr",
              "<leader>ts", "<leader>tc", "<leader>tl",
-             "<leader>at", "<leader>aa", "<leader>ab" },
+             "<leader>tt", "<leader>at", "<leader>aa", "<leader>ab" },
     opts = {
       provider = "baseten",
       providers = {
@@ -45,8 +51,9 @@ COMMANDS                                                    *aporia-commands*
 
 :Aporia [sub]                                                 *:Aporia*
     Without argument: toggle the chat window.
-    Subcommands: toggle, reset, add, addbuffer, question, hint, reframe,
-    steps, rootcause, log.
+    Subcommands: toggle, assist, teach, reset, add, addbuffer, question,
+    hint, reframe, steps, rootcause, log. `assist` and `teach` open the chat
+    in that mode; `reset` wipes both conversations.
 
 ==============================================================================
 KEYMAPS                                                      *aporia-keymaps*
@@ -66,15 +73,20 @@ Inside the chat:
 <CR>           Send the input window's contents
 <C-j>          Newline while composing (in the input window)
 q              Hide the chat (works in every window)
+x              Clear the current mode's conversation
 d              Unstage the item under the cursor (staged context box)
 Esc            Leave insert mode in the input window
 
 The sidebar is three floating boxes: read-only chat history on top, the
 staged-context box in the middle (only shown when something is staged),
 and the input window at the bottom. Only the input window is editable.
+The input hint starts with the active mode, and the borders link to
+AporiaBorderAssist or AporiaBorderTeach.
 
 ==============================================================================
 TRAPS                                                          *aporia-traps*
+
+Each trap switches the chat to teach mode.
 
 Forming      Right question, wrong answer         <leader>tq
 Dislodging   Stuck in a rut                       <leader>th
