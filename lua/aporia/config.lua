@@ -33,6 +33,13 @@ M.defaults = {
     position = "right",
     width = 0.4,
   },
+  -- conversations saved under <root>/<dir>, root found by markers from cwd;
+  -- no root means nothing is saved
+  persist = {
+    enabled = true,
+    dir = ".aporia",
+    markers = { ".aporia", ".git" },
+  },
   -- prefix labels in which-key (v3+); false to skip
   which_key_groups = {
     ["<leader>a"] = "aporia assist",

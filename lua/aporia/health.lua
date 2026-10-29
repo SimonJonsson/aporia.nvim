@@ -28,6 +28,17 @@ function M.check()
   else
     vim.health.error("curl not found (required for all requests)")
   end
+  if not config.persist.enabled then
+    vim.health.info("session persistence disabled")
+  else
+    local root = require("aporia.store").root()
+    if root then
+      vim.health.ok("sessions saved in " .. vim.fs.joinpath(root, config.persist.dir))
+    else
+      vim.health.info("no project root from cwd (markers: "
+        .. table.concat(config.persist.markers, ", ") .. "), sessions are not saved")
+    end
+  end
   local f = io.open(vim.fn.expand(config.log_file), "a")
   if f then
     f:close()

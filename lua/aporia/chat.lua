@@ -3,15 +3,39 @@ local M = {
   winid = nil,
   input_bufnr = nil,
   input_winid = nil,
+  -- empty right-hand split the floats sit on, so other windows make room
+  spacer_bufnr = nil,
+  spacer_winid = nil,
   staged_bufnr = nil,
   staged_winid = nil,
   -- one conversation per mode; messages points at the active one
   sessions = { assist = {}, teach = {} },
+  -- on-disk session id per mode; nil until the first message is saved
+  session_ids = {},
   messages = nil,
   busy = false,
   mode = "assist",
 }
 M.messages = M.sessions.assist
+
+local loaded_root
+
+-- load the newest saved session per mode when entering a project; without a
+-- project root the in-memory conversations are left alone
+local function ensure_loaded()
+  local store = require("aporia.store")
+  local root = store.root()
+  if not root or root == loaded_root then
+    return
+  end
+  loaded_root = root
+  for _, mode in ipairs({ "assist", "teach" }) do
+    local latest = store.load_latest(mode, root)
+    M.sessions[mode] = latest and latest.messages or {}
+    M.session_ids[mode] = latest and latest.id or nil
+  end
+  M.messages = M.sessions[M.mode]
+end
 
 local GENERATING = "Generating response…"
 local ICONS = { user = "❯", aporia = "◆", staged = "◇" }
@@ -76,8 +100,61 @@ end
 
 local open_chat_float, open_staged_float, open_input_float, create_staged_buffer
 
+local function spacer_open()
+  return M.spacer_winid and vim.api.nvim_win_is_valid(M.spacer_winid)
+end
+
+-- an API split does not trigger 'equalalways' the way :vsplit does, so the
+-- column would come entirely out of its neighbour; rebalance widths only
+local function equalize_widths()
+  if not vim.o.equalalways then
+    return
+  end
+  for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+    if vim.api.nvim_win_get_config(win).relative == "" then
+      vim.api.nvim_win_call(win, function()
+        -- :horizontal limits CTRL-W = to widths; heights stay as they are
+        vim.cmd("horizontal wincmd =")
+      end)
+      return
+    end
+  end
+end
+
+-- reserve the sidebar column with a real split and place the floats on it
+local function reserve_column(g)
+  local want = g.width + 2
+  if spacer_open() then
+    if vim.api.nvim_win_get_width(M.spacer_winid) ~= want then
+      vim.api.nvim_win_set_width(M.spacer_winid, want)
+    end
+  else
+    if not (M.spacer_bufnr and vim.api.nvim_buf_is_valid(M.spacer_bufnr)) then
+      M.spacer_bufnr = vim.api.nvim_create_buf(false, true)
+      vim.bo[M.spacer_bufnr].buftype = "nofile"
+      vim.bo[M.spacer_bufnr].filetype = "aporia_spacer"
+    end
+    M.spacer_winid = vim.api.nvim_open_win(M.spacer_bufnr, false, {
+      split = "right",
+      win = -1,
+      width = want,
+      style = "minimal",
+    })
+    local wo = vim.wo[M.spacer_winid]
+    wo.winfixwidth = true
+    wo.winfixbuf = true
+    wo.winbar = ""
+    wo.statuscolumn = ""
+    wo.fillchars = "eob: "
+    equalize_widths()
+  end
+  g.col = vim.api.nvim_win_get_position(M.spacer_winid)[2]
+  g.width = math.max(vim.api.nvim_win_get_width(M.spacer_winid) - 2, 10)
+  return g
+end
+
 local function layout(blocks, header_count)
-  local g = geometry()
+  local g = reserve_column(geometry())
   local staged_text_h = 0
   local staged_h = 0
   if blocks > 0 then
@@ -162,7 +239,7 @@ local function render_chat()
   for i, m in ipairs(M.messages) do
     out[#out + 1] = ""
     if m.role == "user" then
-      add(ICONS.user .. " You · " .. m.time, "AporiaUser")
+      add(ICONS.user .. " You · " .. (m.time or ""), "AporiaUser")
       if m.question and m.question ~= "" then
         vim.list_extend(out, vim.split(m.question, "\n"))
       end
@@ -238,8 +315,8 @@ local function render_chat()
       end
       fold("system", m.mode and ("system prompt · " .. m.mode) or "system prompt", m.system, false)
     else
-      add(ICONS.aporia .. " Aporia · " .. m.time, "AporiaReply")
-      vim.list_extend(out, vim.split(m.content, "\n"))
+      add(ICONS.aporia .. " Aporia · " .. (m.time or ""), "AporiaReply")
+      vim.list_extend(out, vim.split(m.content or "", "\n"))
     end
   end
 
@@ -343,6 +420,52 @@ local function staged_open()
   return M.staged_winid ~= nil and vim.api.nvim_win_is_valid(M.staged_winid)
 end
 
+local function persist(mode)
+  local store = require("aporia.store")
+  local root = store.root()
+  local list = M.sessions[mode]
+  if not root or #list == 0 then
+    return
+  end
+  M.session_ids[mode] = M.session_ids[mode] or store.new_id()
+  local out = {}
+  for _, m in ipairs(list) do
+    if m.content ~= GENERATING then
+      out[#out + 1] = m
+    end
+  end
+  store.save(mode, M.session_ids[mode], out, root)
+end
+
+-- start a fresh conversation in the current mode; the old one stays on disk
+function M.new_session()
+  M.sessions[M.mode] = {}
+  M.session_ids[M.mode] = nil
+  M.messages = M.sessions[M.mode]
+  M.render()
+  notify("aporia: new " .. M.mode .. " conversation")
+end
+
+-- delete every saved session in this project and start both modes fresh
+function M.delete_all_sessions()
+  local store = require("aporia.store")
+  local root = store.root()
+  if not root then
+    return notify("aporia: no project root, nothing is saved", vim.log.levels.WARN)
+  end
+  local n = store.count(root)
+  local prompt = ("Delete all %d saved aporia session%s in %s?"):format(n, n == 1 and "" or "s", root)
+  if vim.fn.confirm(prompt, "&Yes\n&No", 2) ~= 1 then
+    return
+  end
+  store.delete_all(root)
+  M.sessions = { assist = {}, teach = {} }
+  M.session_ids = {}
+  M.messages = M.sessions[M.mode]
+  M.render()
+  notify(("aporia: deleted %d session%s"):format(n, n == 1 and "" or "s"))
+end
+
 local function clear_chat()
   if #M.messages == 0 then
     return
@@ -350,10 +473,7 @@ local function clear_chat()
   if vim.fn.confirm("Clear the conversation? (staged context is kept)", "&Yes\n&No", 2) ~= 1 then
     return
   end
-  M.sessions[M.mode] = {}
-  M.messages = M.sessions[M.mode]
-  M.render()
-  notify("aporia: " .. M.mode .. " conversation cleared")
+  M.new_session()
 end
 
 local function create_chat_buffer()
@@ -425,9 +545,15 @@ local function create_input_buffer()
   vim.b[M.input_bufnr].completion = false
   set_input_chrome()
   local opts = { buffer = M.input_bufnr, silent = true }
-  vim.keymap.set({ "n", "i" }, "<CR>", function()
+  require("aporia.slash").attach(M.input_bufnr)
+  vim.keymap.set("n", "<CR>", function()
     M.submit()
   end, opts)
+  -- <CR> sends what was typed; with the slash menu open it dismisses it first
+  -- (only <C-y> accepts a suggestion)
+  vim.keymap.set("i", "<CR>", function()
+    return (vim.fn.pumvisible() == 1 and "<C-e>" or "") .. "<Cmd>lua require('aporia.chat').submit()<CR>"
+  end, vim.tbl_extend("force", opts, { expr = true }))
   vim.keymap.set("i", "<C-j>", "<CR>", opts)
   vim.keymap.set({ "n", "i" }, "<C-k>", function()
     vim.cmd("stopinsert")
@@ -578,6 +704,7 @@ local function ensure_nav()
 end
 
 function M.open()
+  ensure_loaded()
   ensure_nav()
   set_highlights()
   if not (M.bufnr and vim.api.nvim_buf_is_valid(M.bufnr)) then
@@ -619,6 +746,16 @@ function M.hide()
       pcall(vim.api.nvim_win_close, win, true)
     end
   end
+  -- forget the spacer before closing it, so our own WinClosed handler
+  -- does not schedule a second hide that would take down the next open
+  local spacer = M.spacer_winid
+  M.spacer_winid = nil
+  if spacer and vim.api.nvim_win_is_valid(spacer) then
+    -- fails only when the spacer is the last window; QuitPre prevents that
+    if pcall(vim.api.nvim_win_close, spacer, true) then
+      equalize_widths()
+    end
+  end
   M.winid = nil
   M.staged_winid = nil
   M.input_winid = nil
@@ -645,6 +782,7 @@ end
 
 function M.reset()
   M.sessions = { assist = {}, teach = {} }
+  M.session_ids = {}
   M.messages = M.sessions[M.mode]
   require("aporia.context").clear()
   if M.input_bufnr and vim.api.nvim_buf_is_valid(M.input_bufnr) then
@@ -656,9 +794,6 @@ function M.reset()
 end
 
 function M.submit()
-  if M.busy then
-    return notify("aporia: waiting for a reply", vim.log.levels.WARN)
-  end
   if not (M.input_bufnr and vim.api.nvim_buf_is_valid(M.input_bufnr)) then
     return
   end
@@ -666,6 +801,21 @@ function M.submit()
   local text = vim.trim(table.concat(lines, "\n"))
   if text == "" then
     return
+  end
+  -- commands run even while a reply is pending
+  local ran = require("aporia.slash").dispatch(text, M)
+  if ran ~= nil then
+    if ran then
+      vim.api.nvim_buf_set_lines(M.input_bufnr, 0, -1, false, { "" })
+      set_input_chrome()
+    end
+    return
+  end
+  if M.busy then
+    return notify("aporia: waiting for a reply", vim.log.levels.WARN)
+  end
+  if text:sub(1, 2) == "//" then
+    text = text:sub(2)
   end
   local block_list = require("aporia.context").consume_blocks()
   local parts = { { text = text } }
@@ -682,6 +832,7 @@ function M.submit()
   })
   vim.api.nvim_buf_set_lines(M.input_bufnr, 0, -1, false, { "" })
   set_input_chrome()
+  persist(M.mode)
   M._request()
 end
 
@@ -717,7 +868,7 @@ function M._request(opts)
   opts = opts or {}
   M.busy = true
   -- the reply belongs to this conversation even if the mode switches meanwhile
-  local list = M.messages
+  local list, mode = M.messages, M.mode
   table.insert(list, { role = "assistant", content = GENERATING, time = os.date("%H:%M") })
   local slot = #list
   M.render()
@@ -730,6 +881,9 @@ function M._request(opts)
       return notify(err, vim.log.levels.ERROR)
     end
     list[slot] = { role = "assistant", content = content, time = os.date("%H:%M") }
+    if list == M.sessions[mode] then
+      persist(mode)
+    end
     M.render()
     require("aporia.fetch").process(content)
     if M.input_winid and vim.api.nvim_win_is_valid(M.input_winid) and M.winid and vim.api.nvim_win_is_valid(M.winid) then
@@ -747,6 +901,7 @@ function M.trap(name)
   if not t then
     return notify("unknown trap: " .. tostring(name), vim.log.levels.WARN)
   end
+  ensure_loaded()
   M.set_mode("teach")
   local input = t.ask and vim.trim(vim.fn.input(t.ask .. ": ")) or ""
   local block = require("aporia.context").capture_current()
@@ -777,6 +932,7 @@ function M.trap(name)
     system = require("aporia.prompts").system(M.mode),
     time = os.date("%H:%M"),
   })
+  persist(M.mode)
   if name == "log" then
     M._request({ on_reply = function(content)
       require("aporia.log").run(content)
@@ -793,6 +949,40 @@ vim.api.nvim_create_autocmd("VimResized", {
     if M.winid and vim.api.nvim_win_is_valid(M.winid) then
       M.render()
     end
+  end,
+})
+-- the spacer is never a place to be: landing on it (<C-w>l etc.) means "go to aporia"
+vim.api.nvim_create_autocmd("WinEnter", {
+  group = augroup,
+  callback = function()
+    if spacer_open() and vim.api.nvim_get_current_win() == M.spacer_winid then
+      vim.schedule(M.focus)
+    end
+  end,
+})
+-- :only or <C-w>o took the spacer with it: take the floats down too
+vim.api.nvim_create_autocmd("WinClosed", {
+  group = augroup,
+  callback = function(ev)
+    if M.spacer_winid and tonumber(ev.match) == M.spacer_winid then
+      vim.schedule(M.hide)
+    end
+  end,
+})
+-- quitting the last real window must quit nvim, not strand the sidebar
+vim.api.nvim_create_autocmd("QuitPre", {
+  group = augroup,
+  callback = function()
+    if not spacer_open() then
+      return
+    end
+    local cur = vim.api.nvim_get_current_win()
+    for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+      if win ~= cur and win ~= M.spacer_winid and vim.api.nvim_win_get_config(win).relative == "" then
+        return
+      end
+    end
+    M.hide()
   end,
 })
 

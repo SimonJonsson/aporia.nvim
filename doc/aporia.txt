@@ -51,9 +51,10 @@ COMMANDS                                                    *aporia-commands*
 
 :Aporia [sub]                                                 *:Aporia*
     Without argument: toggle the chat window.
-    Subcommands: toggle, assist, teach, reset, add, addbuffer, question,
-    hint, reframe, steps, rootcause, log. `assist` and `teach` open the chat
-    in that mode; `reset` wipes both conversations.
+    Subcommands: toggle, assist, teach, reset, delete-all-sessions, add,
+    addbuffer, question, hint, reframe, steps, rootcause, log. `assist` and
+    `teach` open the chat in that mode; `reset` wipes both conversations;
+    `delete-all-sessions` removes the project's saved sessions after asking.
 
 ==============================================================================
 KEYMAPS                                                      *aporia-keymaps*
@@ -74,6 +75,17 @@ Inside the chat:
 <C-j>          Newline while composing (in the input window)
 q              Hide the chat (works in every window)
 x              Clear the current mode's conversation
+/              (input, start of line) open the command menu: <C-n>/<C-p>
+               move, <C-y> accepts, <C-e> dismisses, <CR> sends as typed
+
+Slash commands, typed into the input and sent with <CR>:   *aporia-slash*
+/new           Fresh conversation in the current mode
+/assist        Switch to assist mode
+/teach         Switch to teach mode
+/reset         Wipe both conversations and staged context
+/delete-all-sessions
+               Delete every saved session in this project (asks first)
+//text         Send "/text" as an ordinary message
 d              Unstage the item under the cursor (staged context box)
 Esc            Leave insert mode in the input window
 

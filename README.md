@@ -49,6 +49,19 @@ teach. The input box shows the active mode and the border colour follows it
 Inside the chat: the history is read-only; the input window at the bottom is
 where you type. `<CR>` sends, `<C-j>` breaks the line, `q` hides the sidebar.
 
+Typing `/` at the start of the input opens a command menu that narrows as you
+type: fuzzy on command names, word prefixes on descriptions (`/switch` finds
+`/assist` and `/teach`). `<C-n>`/`<C-p>` move through it, `<C-y>` accepts, `<C-e>`
+dismisses; `<CR>` always sends exactly what you typed. Start a message with
+`//` to send a literal leading slash.
+
+| Command | |
+|---|---|
+| `/new` | fresh conversation in the current mode (the old one stays on disk) |
+| `/assist`, `/teach` | switch mode |
+| `/reset` | wipe both conversations and staged context |
+| `/delete-all-sessions` | delete every saved session in this project (asks first) |
+
 ## Setup
 
 ```lua
@@ -165,6 +178,37 @@ opts = {
 within a turn, bounded by the per-turn limit. Codebase access is not on this
 dial. aporia currently sees only what you stage; letting assist mode navigate
 the codebase itself (LSP, grep, file reads) is planned.
+
+## Sessions
+
+Conversations are saved per project in `.aporia/` at the project root: the
+nearest directory above the working directory that holds `.aporia/` or
+`.git`. The directory ignores itself (`.aporia/.gitignore` contains `*`), so
+your repository's ignore file is left alone. Outside a project nothing is
+written.
+
+```
+.aporia/
+  .gitignore
+  sessions/
+    assist/20261029-104211.json
+    teach/20261029-093000.json
+```
+
+Opening the chat restores the newest session of each mode. `/new`, `x` and
+`:Aporia reset` start a fresh one; earlier sessions stay on disk until
+`/delete-all-sessions` (or `:Aporia delete-all-sessions`) removes
+`.aporia/sessions/` after a confirmation.
+
+```lua
+opts = {
+  persist = {
+    enabled = true,
+    dir = ".aporia",
+    markers = { ".aporia", ".git" },
+  },
+}
+```
 
 ## Learning log
 

@@ -310,4 +310,87 @@ describe("aporia sidebar layout", function()
       assert.falsy(text:find("▾ " .. kind, 1, true), kind .. " still expanded after za")
     end
   end)
+
+  describe("with editor splits", function()
+    local function normal_wins()
+      local out = {}
+      for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+        if vim.api.nvim_win_get_config(w).relative == "" and w ~= c.spacer_winid then
+          out[#out + 1] = w
+        end
+      end
+      return out
+    end
+
+    before_each(function()
+      vim.o.columns = 160
+      vim.cmd("only")
+      vim.cmd("vsplit")
+      vim.cmd("vsplit")
+    end)
+
+    after_each(function()
+      c.hide()
+      vim.cmd("only")
+      vim.o.columns = 80
+    end)
+
+    it("makes the other windows give way instead of covering the rightmost", function()
+      c.open()
+      local chat = geom(c.winid)
+      assert.equals(3, #normal_wins())
+      for _, w in ipairs(normal_wins()) do
+        local col = vim.api.nvim_win_get_position(w)[2]
+        assert.is_true(col + vim.api.nvim_win_get_width(w) <= chat.col, "window " .. w .. " is under the sidebar")
+      end
+      local spacer_col = vim.api.nvim_win_get_position(c.spacer_winid)[2]
+      assert.equals(spacer_col, chat.col)
+      assert.equals(vim.api.nvim_win_get_width(c.spacer_winid), chat.width + 2)
+    end)
+
+    it("shares the remaining width evenly instead of squeezing one neighbour", function()
+      c.open()
+      local widths = vim.tbl_map(vim.api.nvim_win_get_width, normal_wins())
+      table.sort(widths)
+      assert.is_true(widths[#widths] - widths[1] <= 1, "uneven widths: " .. table.concat(widths, ","))
+      c.hide()
+      widths = vim.tbl_map(vim.api.nvim_win_get_width, normal_wins())
+      table.sort(widths)
+      assert.is_true(widths[#widths] - widths[1] <= 1, "uneven after hide: " .. table.concat(widths, ","))
+    end)
+
+    it("gives the column back on hide", function()
+      c.open()
+      c.hide()
+      assert.is_nil(c.spacer_winid)
+      local right = 0
+      for _, w in ipairs(normal_wins()) do
+        right = math.max(right, vim.api.nvim_win_get_position(w)[2] + vim.api.nvim_win_get_width(w))
+      end
+      assert.equals(vim.o.columns, right)
+    end)
+
+    it("sends focus that lands on the reserved column to the input", function()
+      c.open()
+      vim.api.nvim_set_current_win(normal_wins()[1])
+      vim.api.nvim_set_current_win(c.spacer_winid)
+      vim.wait(100, function()
+        return vim.api.nvim_get_current_win() == c.input_winid
+      end)
+      assert.equals(c.input_winid, vim.api.nvim_get_current_win())
+    end)
+
+    it("takes the floats down when :only closes the reserved column", function()
+      c.open()
+      vim.api.nvim_set_current_win(normal_wins()[1])
+      vim.cmd("only")
+      vim.wait(100, function()
+        return c.winid == nil
+      end)
+      assert.is_nil(c.winid)
+      for _, w in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+        assert.equals("", vim.api.nvim_win_get_config(w).relative)
+      end
+    end)
+  end)
 end)
