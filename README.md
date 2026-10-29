@@ -179,6 +179,19 @@ within a turn, bounded by the per-turn limit. Codebase access is not on this
 dial. aporia currently sees only what you stage; letting assist mode navigate
 the codebase itself (LSP, grep, file reads) is planned.
 
+## Window layout
+
+The sidebar reserves a real column on the right, so your splits give way
+instead of being covered. Layout plugins that pad or centre windows would
+fight it:
+
+- **no-neck-pain.nvim** is paused while the sidebar is open and resumed when
+  it closes (only if aporia paused it). Opt out with
+  `integrations = { no_neck_pain = false }`.
+- Anything else: while the sidebar is open `vim.g.aporia_sidebar` is true,
+  and the `User` events `AporiaSidebarOpen` / `AporiaSidebarClose` fire, so
+  your own layout automation can hold off.
+
 ## Sessions
 
 Conversations are saved per project in `.aporia/` at the project root: the

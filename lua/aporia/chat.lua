@@ -147,6 +147,10 @@ local function reserve_column(g)
     wo.statuscolumn = ""
     wo.fillchars = "eob: "
     equalize_widths()
+    require("aporia.integrations").on_open(function()
+      equalize_widths()
+      M.render()
+    end)
   end
   g.col = vim.api.nvim_win_get_position(M.spacer_winid)[2]
   g.width = math.max(vim.api.nvim_win_get_width(M.spacer_winid) - 2, 10)
@@ -740,7 +744,8 @@ local function is_our_float(win)
   return buf == M.bufnr or buf == M.input_bufnr or buf == M.staged_bufnr
 end
 
-function M.hide()
+-- opts.quitting: nvim is exiting, so integrations must not reopen windows
+function M.hide(opts)
   for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
     if is_our_float(win) then
       pcall(vim.api.nvim_win_close, win, true)
@@ -755,6 +760,9 @@ function M.hide()
     if pcall(vim.api.nvim_win_close, spacer, true) then
       equalize_widths()
     end
+  end
+  if spacer then
+    require("aporia.integrations").on_close(opts and opts.quitting)
   end
   M.winid = nil
   M.staged_winid = nil
@@ -982,7 +990,7 @@ vim.api.nvim_create_autocmd("QuitPre", {
         return
       end
     end
-    M.hide()
+    M.hide({ quitting = true })
   end,
 })
 

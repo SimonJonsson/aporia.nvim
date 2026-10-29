@@ -40,6 +40,10 @@ M.defaults = {
     dir = ".aporia",
     markers = { ".aporia", ".git" },
   },
+  -- window-layout plugins aporia steps around while the sidebar is open
+  integrations = {
+    no_neck_pain = true, -- paused while open, resumed on close
+  },
   -- prefix labels in which-key (v3+); false to skip
   which_key_groups = {
     ["<leader>a"] = "aporia assist",
