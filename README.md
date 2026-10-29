@@ -232,10 +232,17 @@ Not yet: assist-mode codebase navigation (read-only tools), a general fold
 tree for the chat, treesitter scope expansion for selections, HTML-to-text
 for fetched docs, vimdoc tag generation.
 
+## Backend
+
+aporia's agent core is moving into a Rust process (`backend/`) that Neovim
+talks to over msgpack-RPC, one feature at a time; the Lua plugin keeps
+working throughout. See `backend/README.md`.
+
 ## Development
 
 ```sh
 make test        # plenary.busted
+make test-rust   # cargo test in backend/
 make lint        # selene + stylua --check (tools not bundled)
 ```
 

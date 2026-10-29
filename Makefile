@@ -1,4 +1,4 @@
-.PHONY: test test-file lint fmt
+.PHONY: test test-file test-rust lint fmt
 
 test:
 	nvim --headless -u tests/minimal_init.lua -c "PlenaryBustedDirectory tests/ { minimal_init = 'tests/minimal_init.lua' }"
@@ -8,9 +8,14 @@ test:
 test-file:
 	nvim --headless -u tests/minimal_init.lua -c "PlenaryBustedDirectory $(F) { minimal_init = 'tests/minimal_init.lua' }"
 
+test-rust:
+	cd backend && cargo test
+
 lint:
 	selene lua/
 	stylua --check lua/ tests/
+	cd backend && cargo clippy --all-targets -- -D warnings && cargo fmt --check
 
 fmt:
 	stylua lua/ tests/
+	cd backend && cargo fmt

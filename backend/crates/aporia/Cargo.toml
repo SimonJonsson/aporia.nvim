@@ -1,0 +1,9 @@
+[package]
+name = "aporia"
+description = "aporia backend process; Neovim starts it and talks msgpack-RPC over stdio"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+aporia-core = { path = "../aporia-core" }
