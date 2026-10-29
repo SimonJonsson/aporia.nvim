@@ -682,7 +682,7 @@ local function api_messages()
         end
       end
       out[#out + 1] = { role = "user", content = content }
-    elseif m.content ~= GENERATING then
+    elseif m.content ~= GENERATING and not m.error then
       out[#out + 1] = { role = m.role, content = m.content }
     end
   end
@@ -698,7 +698,7 @@ function M._request(opts)
   require("aporia.http").request(msgs, function(err, content)
     M.busy = false
     if err then
-      M.messages[#M.messages] = { role = "assistant", content = "ERROR: " .. err, time = os.date("%H:%M") }
+      M.messages[#M.messages] = { role = "assistant", content = "ERROR: " .. err, error = true, time = os.date("%H:%M") }
       M.render()
       return notify(err, vim.log.levels.ERROR)
     end
