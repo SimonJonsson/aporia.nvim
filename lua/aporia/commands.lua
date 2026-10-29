@@ -1,7 +1,7 @@
 local M = {}
 
 local TRAPS = { "question", "hint", "reframe", "steps", "rootcause", "log" }
-local SUBCOMMANDS = vim.list_extend({ "toggle", "reset", "add", "addbuffer" }, TRAPS)
+local SUBCOMMANDS = vim.list_extend({ "toggle", "assist", "teach", "reset", "add", "addbuffer" }, TRAPS)
 
 function M.register()
   vim.api.nvim_create_user_command("Aporia", function(o)
@@ -9,6 +9,9 @@ function M.register()
     local sub = vim.trim(o.args)
     if sub == "" or sub == "toggle" then
       return chat.toggle()
+    end
+    if sub == "assist" or sub == "teach" then
+      return chat.toggle(sub)
     end
     if sub == "reset" then
       return chat.reset()
@@ -28,7 +31,7 @@ function M.register()
     complete = function()
       return SUBCOMMANDS
     end,
-    desc = "Aporia: your AI tutor",
+    desc = "Aporia: assist and teach chat",
   })
 end
 

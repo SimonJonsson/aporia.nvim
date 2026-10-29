@@ -24,8 +24,8 @@ SETUP                                                         *aporia-setup*
   {
     dir = "~/Repos/aporia.nvim",
     cmd = "Aporia",
-    keys = { "<leader>aq", "<leader>ah", "<leader>ar",
-             "<leader>as", "<leader>ac", "<leader>al",
+    keys = { "<leader>tq", "<leader>th", "<leader>tr",
+             "<leader>ts", "<leader>tc", "<leader>tl",
              "<leader>at", "<leader>aa", "<leader>ab" },
     opts = {
       provider = "baseten",
@@ -51,13 +51,14 @@ COMMANDS                                                    *aporia-commands*
 ==============================================================================
 KEYMAPS                                                      *aporia-keymaps*
 
-<leader>aq     Question check (Forming)
-<leader>ah     Hint ladder (Dislodging)
-<leader>ar     Reframe (Assumption)
-<leader>as     Step audit (Location)
-<leader>ac     Root-cause challenge (Achievement)
-<leader>al     Log what I learned (Progression)
-<leader>at     Toggle chat window
+<leader>tq     Question check (Forming)
+<leader>th     Hint ladder (Dislodging)
+<leader>tr     Reframe (Assumption)
+<leader>ts     Step audit (Location)
+<leader>tc     Root-cause challenge (Achievement)
+<leader>tl     Log what I learned (Progression)
+<leader>tt     Toggle chat window in teach mode
+<leader>at     Toggle chat window in assist mode
 <leader>aa     Stage visual selection as context
 <leader>ab     Stage whole buffer as context
 
@@ -75,12 +76,12 @@ and the input window at the bottom. Only the input window is editable.
 ==============================================================================
 TRAPS                                                          *aporia-traps*
 
-Forming      Right question, wrong answer         <leader>aq
-Dislodging   Stuck in a rut                       <leader>ah
-Assumption   Solving the wrong problem            <leader>ar
-Location     Skipping critical steps              <leader>as
-Achievement  Fixing instead of root-cause         <leader>ac
-Progression  Falling behind without noticing      <leader>al
+Forming      Right question, wrong answer         <leader>tq
+Dislodging   Stuck in a rut                       <leader>th
+Assumption   Solving the wrong problem            <leader>tr
+Location     Skipping critical steps              <leader>ts
+Achievement  Fixing instead of root-cause         <leader>tc
+Progression  Falling behind without noticing      <leader>tl
 
 The AI-introduced traps (Interruption, Mislead) are handled structurally:
 the plugin has no completion source, no auto-trigger, and every fetch of

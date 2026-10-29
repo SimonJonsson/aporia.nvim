@@ -5,12 +5,16 @@ local M = {
   input_winid = nil,
   staged_bufnr = nil,
   staged_winid = nil,
-  messages = {},
+  -- one conversation per mode; messages points at the active one
+  sessions = { assist = {}, teach = {} },
+  messages = nil,
   busy = false,
+  mode = "assist",
 }
+M.messages = M.sessions.assist
 
 local GENERATING = "Generating response…"
-local ICONS = { user = "❯", tutor = "◆", staged = "◇" }
+local ICONS = { user = "❯", aporia = "◆", staged = "◇" }
 local INPUT_HEIGHT = 6
 local STAGED_MAX_LINES = 8
 local NS = vim.api.nvim_create_namespace("aporia")
@@ -40,19 +44,21 @@ local function set_highlights()
     code = { link = "CursorColumn" }
   end
   local groups = {
-    AporiaWinBar = { link = "Title", bold = true },
     AporiaUser = { link = "Question" },
-    AporiaTutor = { link = "Special" },
+    AporiaReply = { link = "Special" },
     AporiaStaged = { link = "Comment" },
     AporiaHint = { link = "Comment" },
     AporiaAccent = { link = "Keyword" },
     AporiaInputTitle = { link = "Title" },
-    AporiaBorder = { link = "Comment" },
+    AporiaBorder = { link = M.mode == "teach" and "AporiaBorderTeach" or "AporiaBorderAssist" },
     AporiaCode = code,
   }
   for name, def in pairs(groups) do
     vim.api.nvim_set_hl(0, name, def)
   end
+  -- default = true so colorschemes and users can override the mode colours
+  vim.api.nvim_set_hl(0, "AporiaBorderAssist", { link = "Comment", default = true })
+  vim.api.nvim_set_hl(0, "AporiaBorderTeach", { link = "DiagnosticWarn", default = true })
 end
 
 local function geometry()
@@ -230,16 +236,16 @@ local function render_chat()
           fold("context", "staged context", m.context, true)
         end
       end
-      fold("system", "system prompt", m.system, false)
+      fold("system", m.mode and ("system prompt · " .. m.mode) or "system prompt", m.system, false)
     else
-      add(ICONS.tutor .. " Tutor · " .. m.time, "AporiaTutor")
+      add(ICONS.aporia .. " Aporia · " .. m.time, "AporiaReply")
       vim.list_extend(out, vim.split(m.content, "\n"))
     end
   end
 
   local content_height = M.winid
     and vim.api.nvim_win_is_valid(M.winid)
-    and (vim.api.nvim_win_get_height(M.winid) - 1)
+    and vim.api.nvim_win_get_height(M.winid)
     or 30
   local pad = math.max(0, content_height - #out)
   local offset_map = {}
@@ -344,9 +350,10 @@ local function clear_chat()
   if vim.fn.confirm("Clear the conversation? (staged context is kept)", "&Yes\n&No", 2) ~= 1 then
     return
   end
-  M.messages = {}
+  M.sessions[M.mode] = {}
+  M.messages = M.sessions[M.mode]
   M.render()
-  notify("aporia: conversation cleared")
+  notify("aporia: " .. M.mode .. " conversation cleared")
 end
 
 local function create_chat_buffer()
@@ -400,7 +407,12 @@ local function set_input_chrome()
   vim.api.nvim_buf_clear_namespace(M.input_bufnr, NS_INPUT, 0, -1)
   local last = vim.api.nvim_buf_line_count(M.input_bufnr) - 1
   vim.api.nvim_buf_set_extmark(M.input_bufnr, NS_INPUT, last, 0, {
-    virt_lines = { { { " <CR> send · <C-j> newline · <C-k> up · x clear · q hide", "AporiaHint" } } },
+    virt_lines = {
+      {
+        { " " .. M.mode, "AporiaAccent" },
+        { " · <CR> send · <C-j> newline · <C-k> up · x clear · q hide", "AporiaHint" },
+      },
+    },
   })
 end
 
@@ -466,7 +478,6 @@ function open_chat_float(g, height)
   wo.spell = false
   wo.list = false
   wo.cursorline = false
-  wo.winbar = "%#AporiaWinBar# ✦ aporia "
   wo.winhighlight = "FloatBorder:AporiaBorder,Normal:Normal"
 end
 
@@ -613,16 +624,28 @@ function M.hide()
   M.input_winid = nil
 end
 
-function M.toggle()
-  if M.winid and vim.api.nvim_win_is_valid(M.winid) then
-    M.hide()
-  else
-    M.open()
+function M.set_mode(mode)
+  M.mode = mode
+  M.messages = M.sessions[mode]
+  set_input_chrome()
+  M.render()
+end
+
+-- toggle(mode): hide if already open in that mode, otherwise switch to it
+function M.toggle(mode)
+  local is_open = M.winid and vim.api.nvim_win_is_valid(M.winid)
+  if is_open and (not mode or mode == M.mode) then
+    return M.hide()
   end
+  if mode then
+    M.set_mode(mode)
+  end
+  M.open()
 end
 
 function M.reset()
-  M.messages = {}
+  M.sessions = { assist = {}, teach = {} }
+  M.messages = M.sessions[M.mode]
   require("aporia.context").clear()
   if M.input_bufnr and vim.api.nvim_buf_is_valid(M.input_bufnr) then
     vim.api.nvim_buf_set_lines(M.input_bufnr, 0, -1, false, { "" })
@@ -634,7 +657,7 @@ end
 
 function M.submit()
   if M.busy then
-    return notify("aporia: waiting for the tutor", vim.log.levels.WARN)
+    return notify("aporia: waiting for a reply", vim.log.levels.WARN)
   end
   if not (M.input_bufnr and vim.api.nvim_buf_is_valid(M.input_bufnr)) then
     return
@@ -653,7 +676,8 @@ function M.submit()
     role = "user",
     question = text,
     parts = parts,
-    system = require("aporia.prompts").system_prompt,
+    mode = M.mode,
+    system = require("aporia.prompts").system(M.mode),
     time = os.date("%H:%M"),
   })
   vim.api.nvim_buf_set_lines(M.input_bufnr, 0, -1, false, { "" })
@@ -662,7 +686,7 @@ function M.submit()
 end
 
 local function api_messages()
-  local out = { { role = "system", content = require("aporia.prompts").system_prompt } }
+  local out = { { role = "system", content = require("aporia.prompts").system(M.mode) } }
   for _, m in ipairs(M.messages) do
     if m.role == "user" then
       local content
@@ -692,17 +716,20 @@ end
 function M._request(opts)
   opts = opts or {}
   M.busy = true
-  table.insert(M.messages, { role = "assistant", content = GENERATING, time = os.date("%H:%M") })
+  -- the reply belongs to this conversation even if the mode switches meanwhile
+  local list = M.messages
+  table.insert(list, { role = "assistant", content = GENERATING, time = os.date("%H:%M") })
+  local slot = #list
   M.render()
   local msgs = api_messages()
   require("aporia.http").request(msgs, function(err, content)
     M.busy = false
     if err then
-      M.messages[#M.messages] = { role = "assistant", content = "ERROR: " .. err, error = true, time = os.date("%H:%M") }
+      list[slot] = { role = "assistant", content = "ERROR: " .. err, error = true, time = os.date("%H:%M") }
       M.render()
       return notify(err, vim.log.levels.ERROR)
     end
-    M.messages[#M.messages] = { role = "assistant", content = content, time = os.date("%H:%M") }
+    list[slot] = { role = "assistant", content = content, time = os.date("%H:%M") }
     M.render()
     require("aporia.fetch").process(content)
     if M.input_winid and vim.api.nvim_win_is_valid(M.input_winid) and M.winid and vim.api.nvim_win_is_valid(M.winid) then
@@ -720,6 +747,7 @@ function M.trap(name)
   if not t then
     return notify("unknown trap: " .. tostring(name), vim.log.levels.WARN)
   end
+  M.set_mode("teach")
   local input = t.ask and vim.trim(vim.fn.input(t.ask .. ": ")) or ""
   local block = require("aporia.context").capture_current()
   local function fill(s)
@@ -745,7 +773,8 @@ function M.trap(name)
     role = "user",
     question = input,
     parts = parts,
-    system = require("aporia.prompts").system_prompt,
+    mode = M.mode,
+    system = require("aporia.prompts").system(M.mode),
     time = os.date("%H:%M"),
   })
   if name == "log" then

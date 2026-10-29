@@ -15,17 +15,24 @@
 5. **Every claim carries a verification path**, or is flagged "unverified".
 6. **Docs are cheaper than AI.** `K`, `gd`, `:help` stay one keystroke.
 
-## Traps
+## Keys
+
+Teach mode lives on `<leader>t`, assist mode on `<leader>a`. Each mode keeps
+its own conversation and system prompt: assist answers directly (explain,
+locate, diagnose, review, plan), teach asks questions. Any trap switches to
+teach. The input box shows the active mode and the border colour follows it
+(`AporiaBorderAssist` / `AporiaBorderTeach`).
 
 | Key | Trap | Exercise |
 |---|---|---|
-| `<leader>aq` | Forming | Question check |
-| `<leader>ah` | Dislodging | Hint ladder (stops at level 3) |
-| `<leader>ar` | Assumption | Reframe |
-| `<leader>as` | Location | Step audit |
-| `<leader>ac` | Achievement | Root-cause challenge |
-| `<leader>al` | Progression | Learning log |
-| `<leader>at` | — | Toggle chat |
+| `<leader>tq` | Forming | Question check |
+| `<leader>th` | Dislodging | Hint ladder (stops at level 3) |
+| `<leader>tr` | Assumption | Reframe |
+| `<leader>ts` | Location | Step audit |
+| `<leader>tc` | Achievement | Root-cause challenge |
+| `<leader>tl` | Progression | Learning log |
+| `<leader>tt` | — | Toggle chat in teach mode |
+| `<leader>at` | — | Toggle chat in assist mode |
 | `<leader>aa` | — | Stage selection as context |
 | `<leader>ab` | — | Stage buffer as context |
 
@@ -38,11 +45,20 @@ where you type. `<CR>` sends, `<C-j>` breaks the line, `q` hides the sidebar.
 {
   "SimonJonsson/aporia.nvim",
   cmd = "Aporia",
-  keys = { "<leader>aq", "<leader>ah", "<leader>ar", "<leader>as",
-           "<leader>ac", "<leader>al", "<leader>at", "<leader>aa", "<leader>ab" },
-  -- if you list keys explicitly, give them their modes so visual-mode
-  -- staging works from a cold start:
-  -- keys = { { "<leader>aa", mode = { "n", "v" } }, ... }
+  -- modes matter: visual-mode staging must work from a cold start, and the
+  -- descs are what which-key shows before the plugin has loaded
+  keys = {
+    { "<leader>tq", mode = { "n", "v" }, desc = "Question check" },
+    { "<leader>th", mode = { "n", "v" }, desc = "Hint ladder" },
+    { "<leader>tr", mode = { "n", "v" }, desc = "Reframe" },
+    { "<leader>ts", mode = { "n", "v" }, desc = "Step audit" },
+    { "<leader>tc", mode = { "n", "v" }, desc = "Root-cause challenge" },
+    { "<leader>tl", mode = { "n", "v" }, desc = "Learning log" },
+    { "<leader>tt", mode = { "n", "v" }, desc = "Toggle chat (teach)" },
+    { "<leader>at", mode = { "n", "v" }, desc = "Toggle chat (assist)" },
+    { "<leader>aa", mode = { "n", "v" }, desc = "Stage selection" },
+    { "<leader>ab", mode = { "n", "v" }, desc = "Stage buffer" },
+  },
   opts = {
     provider = "baseten",
     providers = {
@@ -55,7 +71,19 @@ where you type. `<CR>` sends, `<C-j>` breaks the line, `q` hides the sidebar.
 }
 ```
 
-`:Aporia` toggles the chat; `:Aporia question|hint|reframe|steps|rootcause|log`
+On load, aporia labels `<leader>a` "aporia assist" and `<leader>t` "aporia
+teach" in which-key (v3+); set `which_key_groups = false` to skip that, or
+pass your own `{ [prefix] = label }` table if you remapped. To get the labels
+before the plugin loads (LazyVim), declare them on which-key:
+
+```lua
+{ "folke/which-key.nvim", opts = { spec = {
+  { "<leader>a", group = "aporia assist", mode = { "n", "v" } },
+  { "<leader>t", group = "aporia teach", mode = { "n", "v" } },
+} } }
+```
+
+`:Aporia` toggles the chat; `:Aporia assist|teach` opens it in that mode; `:Aporia question|hint|reframe|steps|rootcause|log`
 run the trap exercises; `:Aporia reset` wipes the session;
 `:checkhealth aporia` verifies provider, key, curl and log file.
 
@@ -129,7 +157,7 @@ dial — there is no code path where the tutor reads your repository.
 
 ## Learning log
 
-`<leader>al` asks the tutor to summarise the session into two lines
+`<leader>tl` asks the tutor to summarise the session into two lines
 (`learned:` / `still needed AI for:`), lets you edit them, and appends
 
 ```

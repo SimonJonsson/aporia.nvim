@@ -8,10 +8,20 @@ describe("aporia.prompts", function()
     end
   end)
 
-  it("system prompt forbids solutions and demands verification", function()
-    assert.is_truthy(prompts.system_prompt:find("Never write the solution"))
-    assert.is_truthy(prompts.system_prompt:find("verification path"))
-    assert.is_truthy(prompts.system_prompt:find("FETCH:"))
+  it("every mode forbids solutions and demands verification", function()
+    for _, mode in ipairs({ "assist", "teach" }) do
+      local sys = prompts.system(mode)
+      assert.is_truthy(sys:find("Never write the solution"))
+      assert.is_truthy(sys:find("verification path"))
+      assert.is_truthy(sys:find("FETCH:"))
+      assert.is_truthy(sys:find("Mode: " .. mode))
+    end
+  end)
+
+  it("only teach mode is Socratic", function()
+    assert.is_truthy(prompts.system("teach"):find("Ask one question at a time"))
+    assert.is_nil(prompts.system("assist"):find("Ask one question at a time"))
+    assert.is_nil(prompts.system("assist"):find("tutor"))
   end)
 
   it("hint ladder stops at level 3", function()

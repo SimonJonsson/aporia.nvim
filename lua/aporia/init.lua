@@ -9,6 +9,14 @@ function M.setup(opts)
   vim.g.aporia_did_setup = true
   require("aporia.commands").register()
   local m = config.options.mappings
+  if config.options.which_key_groups then
+    local ok, wk = pcall(require, "which-key")
+    if ok and wk.add then
+      for prefix, group in pairs(config.options.which_key_groups) do
+        wk.add({ { prefix, group = group, mode = { "n", "v" } } })
+      end
+    end
+  end
   local map = vim.keymap.set
   local function trap(name)
     return function()
@@ -23,8 +31,11 @@ function M.setup(opts)
   map({ "n", "v" }, m.log, trap("log"), { desc = "Aporia: log what I learned (Progression)" })
   map({ "n", "v", "i" }, m.toggle, function()
     vim.cmd("stopinsert")
-    require("aporia.chat").toggle()
-  end, { desc = "Aporia: toggle chat" })
+    require("aporia.chat").toggle("assist")
+  end, { desc = "Aporia: toggle chat (assist)" })
+  map({ "n", "v" }, m.toggle_teach, function()
+    require("aporia.chat").toggle("teach")
+  end, { desc = "Aporia: toggle chat (teach)" })
   map({ "n", "v" }, m.add_selection, function()
     if require("aporia.context").stage_selection() then
       require("aporia.chat").open()
