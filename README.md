@@ -58,6 +58,7 @@ dismisses; `<CR>` always sends exactly what you typed. Start a message with
 | Command | |
 |---|---|
 | `/new` | fresh conversation in the current mode (the old one stays on disk) |
+| `/resume` | pick a saved conversation of the current mode and continue it |
 | `/assist`, `/teach` | switch mode |
 | `/reset` | wipe both conversations and staged context |
 | `/delete-all-sessions` | delete every saved session in this project (asks first) |
@@ -124,8 +125,10 @@ opts = {
 }
 ```
 
-Requests are non-streaming by design: replies are short, and one
-render-once draw keeps the implementation simple and the behaviour inspectable.
+Replies stream into the chat as they are generated. While a thinking model
+reasons, the reply reads "Thinking…"; the reasoning itself is not shown or
+saved. A reply cut off by an error stays visible, marked as an error, and is
+left out of the history sent to the model.
 
 ## API keys
 
@@ -176,8 +179,30 @@ opts = {
 
 `links` shows URLs only; `confirm` asks before every fetch; `auto` fetches
 within a turn, bounded by the per-turn limit. Codebase access is not on this
-dial. aporia currently sees only what you stage; letting assist mode navigate
-the codebase itself (LSP, grep, file reads) is planned.
+dial; see below.
+
+## Reading the project (assist mode)
+
+With the backend built (`make backend`), assist mode can look around the
+project before it answers. Ask "tell me about this project" and the reply
+shows each step as it happens:
+
+```
+◆ Aporia · 14:48
+  ✓ list files · 51 files
+  ✓ read README.md · 264 lines
+  … search "resolve_key" in lua
+```
+
+The tools are read-only: `list_files`, `grep` and `read_file`. They only
+reach files inside the project root, never `.git/` or `.aporia/`, and never
+files git ignores (`.env`, build output), so those are not sent to the
+provider. An open buffer is read as it is in the editor, unsaved edits
+included. A reply makes at most `backend.max_rounds` model calls (default 8);
+the last one gets no tools, so the model has to answer.
+
+Teach mode gets no tools: it works from what you show it. Without the
+backend, assist mode sees only what you stage.
 
 ## Window layout
 
@@ -209,9 +234,15 @@ written.
 ```
 
 Opening the chat restores the newest session of each mode. `/new`, `x` and
-`:Aporia reset` start a fresh one; earlier sessions stay on disk until
-`/delete-all-sessions` (or `:Aporia delete-all-sessions`) removes
-`.aporia/sessions/` after a confirmation.
+`:Aporia reset` start a fresh one; earlier sessions stay on disk, and
+`/resume` (or `:Aporia resume`) picks one to continue, through
+`vim.ui.select`, so your picker plugin shows the list. `/delete-all-sessions`
+(or `:Aporia delete-all-sessions`) removes `.aporia/sessions/` after a
+confirmation.
+
+Two Neovims on the same project never overwrite each other: before saving,
+aporia checks that the file is as it last saw it. If another instance wrote
+it in the meantime, the conversation continues in a copy.
 
 ```lua
 opts = {
@@ -240,8 +271,9 @@ second column stops shrinking over weeks of review, that is the alarm.
 Working: chat sidebar with read-only history and dedicated input window,
 provider table (OpenAI-compatible), assist and teach modes with separate
 conversations, staging queue with provenance, six trap prompts, learning log,
-fetch gate, three-tier key resolution.
-Not yet: assist-mode codebase navigation (read-only tools), a general fold
+fetch gate, three-tier key resolution, streaming replies, read-only project
+tools in assist mode (with the backend).
+Not yet: LSP tools (symbols, references, diagnostics), a general fold
 tree for the chat, treesitter scope expansion for selections, HTML-to-text
 for fetched docs, vimdoc tag generation.
 
@@ -249,13 +281,21 @@ for fetched docs, vimdoc tag generation.
 
 aporia's agent core is moving into a Rust process (`backend/`) that Neovim
 talks to over msgpack-RPC, one feature at a time; the Lua plugin keeps
-working throughout. See `backend/README.md`.
+working throughout. It needs a Rust toolchain to build:
+
+```lua
+{ "SimonJonsson/aporia.nvim", build = "make backend" }
+```
+
+`:checkhealth aporia` reports whether the binary is built and answering.
+See `backend/README.md`.
 
 ## Development
 
 ```sh
 make test        # plenary.busted
 make test-rust   # cargo test in backend/
+make backend     # cargo build --release in backend/
 make lint        # selene + stylua --check (tools not bundled)
 ```
 

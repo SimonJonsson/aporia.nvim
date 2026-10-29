@@ -22,51 +22,155 @@ function M.resolve_key(p)
   return nil
 end
 
-function M.request(messages, cb)
+local function error_message(e)
+  if type(e) == "table" then
+    return e.message or vim.json.encode(e)
+  end
+  return tostring(e)
+end
+
+-- Server-sent events from an OpenAI-compatible /chat/completions stream.
+-- feed() takes stdout in arbitrary chunks; finish() returns err, content.
+-- on_delta(text, kind) gets kind "content", or "reasoning" for a thinking
+-- model's reasoning, which is not part of the reply.
+-- A body that is not SSE at all (an HTTP error) is kept and decoded at the end.
+function M.sse_parser(on_delta)
+  local pending, raw, pieces, err = "", {}, {}, nil
+  local done = false
+
+  local function line(l)
+    l = l:gsub("\r$", "")
+    local data = l:match("^data:%s?(.*)$")
+    if not data then
+      if l ~= "" and not l:match("^[:%a]+:") then
+        raw[#raw + 1] = l
+      end
+      return
+    end
+    if data == "[DONE]" then
+      done = true
+      return
+    end
+    local ok, ev = pcall(vim.json.decode, data)
+    if not ok or type(ev) ~= "table" then
+      return
+    end
+    if ev.error then
+      err = err or error_message(ev.error)
+      return
+    end
+    local choice = ev.choices and ev.choices[1]
+    local delta = choice and choice.delta or {}
+    local thought = delta.reasoning_content or delta.reasoning
+    if type(thought) == "string" and thought ~= "" then
+      on_delta(thought, "reasoning")
+    end
+    if type(delta.content) == "string" and delta.content ~= "" then
+      pieces[#pieces + 1] = delta.content
+      on_delta(delta.content, "content")
+    end
+  end
+
+  local parser = {}
+  function parser.feed(chunk)
+    pending = pending .. chunk
+    while true do
+      local nl = pending:find("\n", 1, true)
+      if not nl then
+        break
+      end
+      line(pending:sub(1, nl - 1))
+      pending = pending:sub(nl + 1)
+    end
+  end
+
+  function parser.finish()
+    if pending ~= "" then
+      line(pending)
+      pending = ""
+    end
+    local content = table.concat(pieces)
+    if err then
+      return err, content
+    end
+    if #pieces == 0 and #raw > 0 then
+      local body = table.concat(raw, "\n")
+      local ok, data = pcall(vim.json.decode, body)
+      if ok and type(data) == "table" and data.error then
+        return error_message(data.error), content
+      end
+      return "unparseable response: " .. body:sub(1, 200), content
+    end
+    if #pieces == 0 and not done then
+      return "empty response", content
+    end
+    return nil, content
+  end
+
+  return parser
+end
+
+-- Streams a reply. on_delta(text, kind) runs for each piece as it arrives and
+-- cb(err, content) once at the end, content being everything received (also
+-- on error, so a reply cut off mid-way is not lost). Both run on the main loop.
+-- This is the contract the chat UI relies on, whichever engine produces it.
+function M.request(messages, cb, on_delta)
+  on_delta = on_delta or function() end
   local opts = require("aporia.config").options
   local p = opts.providers[opts.provider]
   if not p then
-    return cb("unknown provider: " .. tostring(opts.provider))
+    return cb("unknown provider: " .. tostring(opts.provider), "")
   end
   local key = M.resolve_key(p)
   if not key then
-    return cb("no api key found for provider '" .. tostring(opts.provider) .. "' (tried api_key, " .. tostring(p.api_key_env) .. ", api_key_cmd)")
+    return cb(
+      "no api key found for provider '"
+        .. tostring(opts.provider)
+        .. "' (tried api_key, "
+        .. tostring(p.api_key_env)
+        .. ", api_key_cmd)",
+      ""
+    )
   end
   local body = vim.json.encode({
     model = p.model,
     messages = messages,
-    stream = false,
+    stream = true,
   })
   local args = {
     "curl",
     "-sS",
+    "-N",
     "-X",
     "POST",
     p.base_url .. "/chat/completions",
     "-H",
     "Content-Type: application/json",
     "-H",
-    "Authorization: Bearer " .. (key or ""),
+    "Accept: text/event-stream",
+    "-H",
+    "Authorization: Bearer " .. key,
     "-d",
     body,
   }
-  vim.system(args, { text = true }, function(res)
+  local parser = M.sse_parser(on_delta)
+  -- stdout arrives on the event loop; vim.schedule keeps the chunks in order
+  return vim.system(args, {
+    text = true,
+    stdout = function(_, data)
+      if data then
+        vim.schedule(function()
+          parser.feed(data)
+        end)
+      end
+    end,
+  }, function(res)
     vim.schedule(function()
+      local err, content = parser.finish()
       if res.code ~= 0 then
-        return cb("curl failed (" .. res.code .. "): " .. vim.trim(res.stderr or ""))
+        err = "curl failed (" .. res.code .. "): " .. vim.trim(res.stderr or "")
       end
-      local ok, data = pcall(vim.json.decode, res.stdout or "")
-      if not ok then
-        return cb("unparseable response: " .. tostring((res.stdout or ""):sub(1, 200)))
-      end
-      if data.error then
-        return cb(data.error.message or vim.json.encode(data.error))
-      end
-      local choice = data.choices and data.choices[1]
-      if not choice or not choice.message then
-        return cb("no choices in response")
-      end
-      cb(nil, choice.message.content or "")
+      cb(err, content)
     end)
   end)
 end

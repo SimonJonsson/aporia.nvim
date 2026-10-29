@@ -14,6 +14,9 @@
 //! - fold state (`expanded_full`, `expanded_system`, a part's `expanded`)
 //!   is optional and absent when false
 //! - an assistant turn may be a failed reply, marked `error: true`
+//! - an assistant turn made with the backend may carry `steps`: the tool
+//!   steps shown in the chat, `{ label, status, detail? }`, where status is
+//!   `"done"` or `"error"` once saved
 //!
 //! Prefer types that make invalid conversations unrepresentable over
 //! types that mirror the JSON loosely.

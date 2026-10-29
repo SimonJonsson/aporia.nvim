@@ -12,6 +12,8 @@ local M = {
   sessions = { assist = {}, teach = {} },
   -- on-disk session id per mode; nil until the first message is saved
   session_ids = {},
+  -- the file as this instance last saw it (store.stamp), per mode
+  session_stamps = {},
   messages = nil,
   busy = false,
   mode = "assist",
@@ -33,11 +35,14 @@ local function ensure_loaded()
     local latest = store.load_latest(mode, root)
     M.sessions[mode] = latest and latest.messages or {}
     M.session_ids[mode] = latest and latest.id or nil
+    M.session_stamps[mode] = latest and store.stamp(mode, latest.id, root) or nil
   end
   M.messages = M.sessions[M.mode]
 end
 
 local GENERATING = "Generating response…"
+local THINKING = "Thinking…"
+local STEP_ICONS = { running = "  …", done = "  ✓", error = "  ✗" }
 local ICONS = { user = "❯", aporia = "◆", staged = "◇" }
 local INPUT_HEIGHT = 6
 local STAGED_MAX_LINES = 8
@@ -87,7 +92,11 @@ end
 
 local function geometry()
   local width = math.floor(vim.o.columns * require("aporia.config").options.window.width)
-  local tabline_h = (vim.o.showtabline == 2 or (vim.o.showtabline == 1 and vim.fn.tabpagenr("$") > 1)) and 1 or 0
+  local tabline_h = (
+    vim.o.showtabline == 2 or (vim.o.showtabline == 1 and vim.fn.tabpagenr("$") > 1)
+  )
+      and 1
+    or 0
   local statusline_h = vim.o.laststatus > 0 and 1 or 0
   local usable = vim.o.lines - vim.o.cmdheight - statusline_h - tabline_h
   return {
@@ -150,10 +159,21 @@ local function reserve_column(g)
     require("aporia.integrations").on_open(function()
       equalize_widths()
       M.render()
+      -- no-neck-pain focuses its main window as it closes; open() had put
+      -- the cursor in the input, so take it back unless it is still on ours
+      local buf = vim.api.nvim_get_current_buf()
+      if buf ~= M.bufnr and buf ~= M.input_bufnr and buf ~= M.staged_bufnr then
+        M.focus()
+      end
     end)
   end
-  g.col = vim.api.nvim_win_get_position(M.spacer_winid)[2]
-  g.width = math.max(vim.api.nvim_win_get_width(M.spacer_winid) - 2, 10)
+  -- the floats start one column left of the spacer, over the separator its
+  -- neighbour draws, so the chat border takes its place instead of standing
+  -- next to it
+  local spacer_col = vim.api.nvim_win_get_position(M.spacer_winid)[2]
+  local overlap = spacer_col > 0 and 1 or 0
+  g.col = spacer_col - overlap
+  g.width = math.max(vim.api.nvim_win_get_width(M.spacer_winid) - 2 + overlap, 10)
   return g
 end
 
@@ -240,6 +260,8 @@ local function render_chat()
     add("Nothing is sent until you press <CR> in the input box.", "AporiaHint")
   end
 
+  -- the system prompt only shows where it differs from the one before
+  local last_system = nil
   for i, m in ipairs(M.messages) do
     out[#out + 1] = ""
     if m.role == "user" then
@@ -317,16 +339,23 @@ local function render_chat()
           fold("context", "staged context", m.context, true)
         end
       end
-      fold("system", m.mode and ("system prompt · " .. m.mode) or "system prompt", m.system, false)
+      if m.system ~= last_system then
+        fold("system", m.mode and ("system prompt · " .. m.mode) or "system prompt", m.system, false)
+      end
+      last_system = m.system or last_system
     else
       add(ICONS.aporia .. " Aporia · " .. (m.time or ""), "AporiaReply")
+      for _, step in ipairs(m.steps or {}) do
+        local icon = STEP_ICONS[step.status] or STEP_ICONS.running
+        add(icon .. " " .. step.label .. (step.detail and (" · " .. step.detail) or ""), "AporiaHint")
+      end
       vim.list_extend(out, vim.split(m.content or "", "\n"))
     end
   end
 
   local content_height = M.winid
-    and vim.api.nvim_win_is_valid(M.winid)
-    and vim.api.nvim_win_get_height(M.winid)
+      and vim.api.nvim_win_is_valid(M.winid)
+      and vim.api.nvim_win_get_height(M.winid)
     or 30
   local pad = math.max(0, content_height - #out)
   local offset_map = {}
@@ -351,6 +380,14 @@ local function render_chat()
   vim.bo[M.bufnr].modifiable = true
   vim.api.nvim_buf_set_lines(M.bufnr, 0, -1, false, padded)
   vim.bo[M.bufnr].modifiable = false
+  -- After a whole-buffer replace, the incremental reparse can keep a code
+  -- block's injected tree (rust, lua) at its old rows, so that language's
+  -- highlighting spills onto whatever text lands there (all green). Parse in
+  -- full: the injections are then exactly the fenced blocks again.
+  local has_parser, parser = pcall(vim.treesitter.get_parser, M.bufnr, "markdown", { error = false })
+  if has_parser and parser then
+    parser:parse(true)
+  end
   vim.api.nvim_buf_clear_namespace(M.bufnr, NS, 0, -1)
   for line, hl_group in pairs(hls) do
     vim.api.nvim_buf_set_extmark(M.bufnr, NS, line + pad - 1, 0, {
@@ -385,7 +422,9 @@ local function render_staged(blocks, staged_lines, headers)
         blocks,
         blocks == 1 and "" or "s",
         staged_lines,
-        #headers > STAGED_MAX_LINES - 2 and ("  (+" .. (#headers - (STAGED_MAX_LINES - 2)) .. " more)") or ""
+        #headers > STAGED_MAX_LINES - 2
+            and ("  (+" .. (#headers - (STAGED_MAX_LINES - 2)) .. " more)")
+          or ""
       )
     for i, h in ipairs(headers) do
       if #out >= STAGED_MAX_LINES then
@@ -431,23 +470,88 @@ local function persist(mode)
   if not root or #list == 0 then
     return
   end
-  M.session_ids[mode] = M.session_ids[mode] or store.new_id()
+  local id = M.session_ids[mode]
+  -- Another Neovim on this project wrote (or deleted) the file since we last
+  -- saw it: continue in a copy rather than overwrite its turns.
+  if id and store.stamp(mode, id, root) ~= M.session_stamps[mode] then
+    id = nil
+    notify("aporia: this conversation was changed by another Neovim; continuing in a copy")
+  end
+  id = id or store.new_id(mode, root)
+  M.session_ids[mode] = id
   local out = {}
   for _, m in ipairs(list) do
-    if m.content ~= GENERATING then
+    if not m.pending then
       out[#out + 1] = m
     end
   end
-  store.save(mode, M.session_ids[mode], out, root)
+  store.save(mode, id, out, root)
+  M.session_stamps[mode] = store.stamp(mode, id, root)
 end
 
 -- start a fresh conversation in the current mode; the old one stays on disk
 function M.new_session()
   M.sessions[M.mode] = {}
   M.session_ids[M.mode] = nil
+  M.session_stamps[M.mode] = nil
   M.messages = M.sessions[M.mode]
   M.render()
   notify("aporia: new " .. M.mode .. " conversation")
+end
+
+local function session_label(s, current)
+  local y, mo, d, h, mi = s.id:match("^(%d%d%d%d)(%d%d)(%d%d)%-(%d%d)(%d%d)")
+  local when = y and ("%s-%s-%s %s:%s"):format(y, mo, d, h, mi) or s.id
+  local first = vim.trim((s.first or ""):gsub("%s+", " "))
+  if #first > 60 then
+    first = first:sub(1, 57) .. "…"
+  end
+  return ("%s%s · %d turn%s · %s"):format(
+    current and "• " or "  ",
+    when,
+    s.turns,
+    s.turns == 1 and "" or "s",
+    first ~= "" and first or "(no question)"
+  )
+end
+
+-- pick a saved conversation of the current mode and continue it
+function M.resume()
+  if M.busy then
+    return notify("aporia: waiting for a reply", vim.log.levels.WARN)
+  end
+  local store = require("aporia.store")
+  local root = store.root()
+  if not root then
+    return notify("aporia: no project root, nothing is saved", vim.log.levels.WARN)
+  end
+  local mode = M.mode
+  local saved = store.list(mode, root)
+  if #saved == 0 then
+    return notify("aporia: no saved " .. mode .. " conversations")
+  end
+  vim.ui.select(saved, {
+    prompt = "Resume " .. mode .. " conversation",
+    format_item = function(s)
+      return session_label(s, s.id == M.session_ids[mode])
+    end,
+  }, function(choice)
+    if choice then
+      local loaded = store.load(mode, choice.id, root)
+      if not loaded then
+        notify("aporia: could not read " .. choice.id, vim.log.levels.ERROR)
+      else
+        M.sessions[mode] = loaded.messages
+        M.session_ids[mode] = loaded.id
+        M.session_stamps[mode] = store.stamp(mode, loaded.id, root)
+        if M.mode == mode then
+          M.messages = M.sessions[mode]
+        end
+        M.render()
+      end
+    end
+    M.focus()
+  end)
 end
 
 -- delete every saved session in this project and start both modes fresh
@@ -458,13 +562,18 @@ function M.delete_all_sessions()
     return notify("aporia: no project root, nothing is saved", vim.log.levels.WARN)
   end
   local n = store.count(root)
-  local prompt = ("Delete all %d saved aporia session%s in %s?"):format(n, n == 1 and "" or "s", root)
+  local prompt = ("Delete all %d saved aporia session%s in %s?"):format(
+    n,
+    n == 1 and "" or "s",
+    root
+  )
   if vim.fn.confirm(prompt, "&Yes\n&No", 2) ~= 1 then
     return
   end
   store.delete_all(root)
   M.sessions = { assist = {}, teach = {} }
   M.session_ids = {}
+  M.session_stamps = {}
   M.messages = M.sessions[M.mode]
   M.render()
   notify(("aporia: deleted %d session%s"):format(n, n == 1 and "" or "s"))
@@ -556,7 +665,8 @@ local function create_input_buffer()
   -- <CR> sends what was typed; with the slash menu open it dismisses it first
   -- (only <C-y> accepts a suggestion)
   vim.keymap.set("i", "<CR>", function()
-    return (vim.fn.pumvisible() == 1 and "<C-e>" or "") .. "<Cmd>lua require('aporia.chat').submit()<CR>"
+    return (vim.fn.pumvisible() == 1 and "<C-e>" or "")
+      .. "<Cmd>lua require('aporia.chat').submit()<CR>"
   end, vim.tbl_extend("force", opts, { expr = true }))
   vim.keymap.set("i", "<C-j>", "<CR>", opts)
   vim.keymap.set({ "n", "i" }, "<C-k>", function()
@@ -717,7 +827,12 @@ function M.open()
   if not (M.input_bufnr and vim.api.nvim_buf_is_valid(M.input_bufnr)) then
     create_input_buffer()
   end
-  if M.winid and vim.api.nvim_win_is_valid(M.winid) and M.input_winid and vim.api.nvim_win_is_valid(M.input_winid) then
+  if
+    M.winid
+    and vim.api.nvim_win_is_valid(M.winid)
+    and M.input_winid
+    and vim.api.nvim_win_is_valid(M.input_winid)
+  then
     vim.api.nvim_set_current_win(M.input_winid)
     vim.cmd("startinsert!")
     return
@@ -791,6 +906,7 @@ end
 function M.reset()
   M.sessions = { assist = {}, teach = {} }
   M.session_ids = {}
+  M.session_stamps = {}
   M.messages = M.sessions[M.mode]
   require("aporia.context").clear()
   if M.input_bufnr and vim.api.nvim_buf_is_valid(M.input_bufnr) then
@@ -865,43 +981,94 @@ local function api_messages()
         end
       end
       out[#out + 1] = { role = "user", content = content }
-    elseif m.content ~= GENERATING and not m.error then
+    elseif not m.pending and not m.error then
       out[#out + 1] = { role = m.role, content = m.content }
     end
   end
   return out
 end
 
+-- how often a streaming reply is redrawn, in ms
+local STREAM_REDRAW = 40
+
 function M._request(opts)
   opts = opts or {}
   M.busy = true
   -- the reply belongs to this conversation even if the mode switches meanwhile
   local list, mode = M.messages, M.mode
-  table.insert(list, { role = "assistant", content = GENERATING, time = os.date("%H:%M") })
+  local reply = { role = "assistant", content = GENERATING, pending = true, time = os.date("%H:%M") }
+  table.insert(list, reply)
   local slot = #list
   M.render()
   local msgs = api_messages()
-  require("aporia.http").request(msgs, function(err, content)
+  local pieces, redraw_queued = {}, false
+  local function on_delta(text, kind)
+    if kind == "reasoning" then
+      if #pieces == 0 and reply.content ~= THINKING then
+        reply.content = THINKING
+        M.render()
+      end
+      return
+    end
+    pieces[#pieces + 1] = text
+    if redraw_queued then
+      return
+    end
+    redraw_queued = true
+    vim.defer_fn(function()
+      redraw_queued = false
+      if reply.pending then
+        reply.content = table.concat(pieces)
+        M.render()
+      end
+    end, STREAM_REDRAW)
+  end
+  local function on_step(step)
+    reply.steps = reply.steps or {}
+    if not vim.tbl_contains(reply.steps, step) then
+      table.insert(reply.steps, step)
+    end
+    M.render()
+  end
+  local function on_done(err, content)
     M.busy = false
+    reply.pending = false
+    content = content or ""
     if err then
-      list[slot] = { role = "assistant", content = "ERROR: " .. err, error = true, time = os.date("%H:%M") }
+      local shown = "ERROR: " .. err
+      if content ~= "" then
+        shown = content .. "\n\n" .. shown
+      end
+      list[slot] = { role = "assistant", content = shown, error = true, time = reply.time, steps = reply.steps }
       M.render()
       return notify(err, vim.log.levels.ERROR)
     end
-    list[slot] = { role = "assistant", content = content, time = os.date("%H:%M") }
+    list[slot] = { role = "assistant", content = content, time = reply.time, steps = reply.steps }
     if list == M.sessions[mode] then
       persist(mode)
     end
     M.render()
     require("aporia.fetch").process(content)
-    if M.input_winid and vim.api.nvim_win_is_valid(M.input_winid) and M.winid and vim.api.nvim_win_is_valid(M.winid) then
+    if
+      M.input_winid
+      and vim.api.nvim_win_is_valid(M.input_winid)
+      and M.winid
+      and vim.api.nvim_win_is_valid(M.winid)
+    then
       vim.api.nvim_set_current_win(M.input_winid)
       vim.cmd("startinsert!")
     end
     if opts.on_reply then
       opts.on_reply(content)
     end
-  end)
+  end
+  -- the Rust backend runs the tool loop; without it, plain streaming chat
+  local backend = require("aporia.backend")
+  if backend.available() then
+    backend.request(msgs, on_done, on_delta, { tools = mode == "assist", on_step = on_step })
+  else
+    require("aporia.http").request(msgs, on_done, on_delta)
+  end
 end
 
 function M.trap(name)
@@ -927,9 +1094,11 @@ function M.trap(name)
       { text = fill(post) },
     }
   else
-    parts = { { text = fill(t.template:gsub("{selection}", function()
-      return block.block
-    end)) } }
+    parts = {
+      { text = fill(t.template:gsub("{selection}", function()
+        return block.block
+      end)) },
+    }
   end
   M.open()
   table.insert(M.messages, {
@@ -942,9 +1111,11 @@ function M.trap(name)
   })
   persist(M.mode)
   if name == "log" then
-    M._request({ on_reply = function(content)
-      require("aporia.log").run(content)
-    end })
+    M._request({
+      on_reply = function(content)
+        require("aporia.log").run(content)
+      end,
+    })
   else
     M._request()
   end
@@ -986,7 +1157,11 @@ vim.api.nvim_create_autocmd("QuitPre", {
     end
     local cur = vim.api.nvim_get_current_win()
     for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
-      if win ~= cur and win ~= M.spacer_winid and vim.api.nvim_win_get_config(win).relative == "" then
+      if
+        win ~= cur
+        and win ~= M.spacer_winid
+        and vim.api.nvim_win_get_config(win).relative == ""
+      then
         return
       end
     end

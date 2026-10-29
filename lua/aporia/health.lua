@@ -23,6 +23,19 @@ function M.check()
       vim.health.warn("no api key found (checked api_key, env " .. tostring(p.api_key_env) .. ", api_key_cmd)")
     end
   end
+  local backend = require("aporia.backend")
+  if not config.backend.enabled then
+    vim.health.info("backend disabled: assist mode has no tools")
+  elseif not backend.cmd() then
+    vim.health.warn("backend not built: assist mode has no tools", { "run `make backend` in the plugin directory" })
+  else
+    local pong, err = backend.ping()
+    if pong == "pong" then
+      vim.health.ok("backend answers: " .. backend.cmd())
+    else
+      vim.health.error("backend does not answer: " .. tostring(err), { backend.cmd() })
+    end
+  end
   if vim.fn.executable("curl") == 1 then
     vim.health.ok("curl found")
   else

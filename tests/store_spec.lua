@@ -66,6 +66,125 @@ describe("aporia project store", function()
     package.loaded["aporia.chat"] = nil
   end)
 
+  it("makes ids unique within a mode", function()
+    local first = store.new_id("assist", project)
+    store.save("assist", first, { { role = "user", question = "x" } })
+    assert.are_not.equals(first, store.new_id("assist", project))
+  end)
+
+  it("lists sessions newest first with their opening question", function()
+    store.save("assist", "20260101-000000", { { role = "user", question = "old" }, { role = "assistant", content = "r" } })
+    store.save("assist", "20260102-000000", {
+      { role = "user", parts = { { text = "from parts" } } },
+      { role = "user", question = "second" },
+    })
+    local list = store.list("assist")
+    assert.same({ "20260102-000000", "20260101-000000" }, vim.tbl_map(function(s)
+      return s.id
+    end, list))
+    assert.equals("from parts", list[1].first)
+    assert.equals(2, list[1].turns)
+    assert.equals(1, list[2].turns)
+  end)
+
+  describe("two instances on one project", function()
+    local http = require("aporia.http")
+    local real_request = http.request
+    local c
+
+    local function send(text)
+      vim.api.nvim_buf_set_lines(c.input_bufnr, 0, -1, false, { text })
+      c.submit()
+    end
+
+    before_each(function()
+      store.save("assist", "20260101-000000", { { role = "user", question = "shared" }, { role = "assistant", content = "r" } })
+      http.request = function(_, cb)
+        cb(nil, "ok")
+      end
+      package.loaded["aporia.chat"] = nil
+      c = require("aporia.chat")
+      c.open()
+    end)
+
+    after_each(function()
+      http.request = real_request
+      c.hide()
+      package.loaded["aporia.chat"] = nil
+    end)
+
+    it("keeps writing the same file while nobody else does", function()
+      send("one")
+      send("two")
+      assert.equals(1, #store.list("assist"))
+      assert.equals(6, #store.load("assist", "20260101-000000").messages)
+    end)
+
+    it("continues in a copy when another instance wrote the file", function()
+      -- the other Neovim adds its own turn to the shared file
+      vim.wait(20, function()
+        return false
+      end)
+      store.save("assist", "20260101-000000", {
+        { role = "user", question = "shared" },
+        { role = "assistant", content = "r" },
+        { role = "user", question = "theirs" },
+      })
+      send("mine")
+      local other = store.load("assist", "20260101-000000").messages
+      assert.equals("theirs", other[3].question)
+      local list = store.list("assist")
+      assert.equals(2, #list)
+      assert.are_not.equals("20260101-000000", c.session_ids.assist)
+      local copy = store.load("assist", c.session_ids.assist).messages
+      assert.equals("mine", copy[3].question)
+      -- and from then on, the copy is ours: no further forks
+      send("again")
+      assert.equals(2, #store.list("assist"))
+    end)
+  end)
+
+  describe("resume", function()
+    local real_select = vim.ui.select
+    local c
+
+    before_each(function()
+      store.save("assist", "20260101-000000", { { role = "user", question = "older" } })
+      store.save("assist", "20260102-000000", { { role = "user", question = "newer" } })
+      package.loaded["aporia.chat"] = nil
+      c = require("aporia.chat")
+      c.open()
+    end)
+
+    after_each(function()
+      vim.ui.select = real_select
+      c.hide()
+      package.loaded["aporia.chat"] = nil
+    end)
+
+    it("offers the mode's sessions, marks the open one, and loads the pick", function()
+      assert.equals("newer", c.messages[1].question)
+      local labels
+      vim.ui.select = function(items, opts, on_choice)
+        labels = vim.tbl_map(opts.format_item, items)
+        on_choice(items[2])
+      end
+      c.resume()
+      assert.is_truthy(labels[1]:find("^• 2026%-01%-02 00:00 · 1 turn · newer"))
+      assert.is_truthy(labels[2]:find("^  2026%-01%-01 00:00 · 1 turn · older"))
+      assert.equals("older", c.messages[1].question)
+      assert.equals("20260101-000000", c.session_ids.assist)
+    end)
+
+    it("leaves the conversation alone when the pick is cancelled", function()
+      vim.ui.select = function(_, _, on_choice)
+        on_choice(nil)
+      end
+      c.resume()
+      assert.equals("newer", c.messages[1].question)
+    end)
+  end)
+
   describe("delete-all-sessions", function()
     local real_confirm = vim.fn.confirm
     local c

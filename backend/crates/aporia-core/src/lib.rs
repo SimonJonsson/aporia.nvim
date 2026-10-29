@@ -1,6 +1,8 @@
-//! aporia's core: the conversation model and, later, the agent loop.
-//!
-//! Nothing in this crate knows about Neovim or how bytes reach it. The
-//! `aporia` binary crate owns the RPC transport and calls in here.
+//! aporia's core: everything that can be decided without touching the
+//! network, the file system or Neovim. The `aporia` binary does the I/O.
 
+pub mod agent;
+pub mod openai;
+pub mod protocol;
 pub mod session;
+pub mod sse;

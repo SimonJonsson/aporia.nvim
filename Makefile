@@ -1,4 +1,4 @@
-.PHONY: test test-file test-rust lint fmt
+.PHONY: test test-file test-rust backend lint fmt
 
 test:
 	nvim --headless -u tests/minimal_init.lua -c "PlenaryBustedDirectory tests/ { minimal_init = 'tests/minimal_init.lua' }"
@@ -10,6 +10,10 @@ test-file:
 
 test-rust:
 	cd backend && cargo test
+
+# the binary the plugin starts; lazy.nvim users can set build = "make backend"
+backend:
+	cd backend && cargo build --release
 
 lint:
 	selene lua/

@@ -3,3 +3,5 @@ vim.opt.runtimepath:prepend(vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(
 require("plenary.busted")
 -- specs must never write .aporia/ into the repository
 require("aporia.config").options.persist.enabled = false
+-- specs stub aporia.http; backend_spec turns the backend on itself
+require("aporia.config").options.backend.enabled = false

@@ -11,6 +11,13 @@ M.commands = {
     end,
   },
   {
+    name = "resume",
+    desc = "pick a saved conversation of this mode and continue it",
+    run = function(chat)
+      chat.resume()
+    end,
+  },
+  {
     name = "assist",
     desc = "switch to assist mode",
     run = function(chat)

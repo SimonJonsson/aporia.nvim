@@ -8,8 +8,10 @@ local function fake_nnp(enabled)
   package.loaded["no-neck-pain"] = {
     disable = function()
       calls[#calls + 1] = "disable"
+      -- like the real one: closes its padding later and focuses the main window
       vim.defer_fn(function()
         _G.NoNeckPain.state.enabled = false
+        vim.api.nvim_set_current_win(vim.fn.win_getid(1))
       end, 5)
     end,
     enable = function()
@@ -56,6 +58,15 @@ describe("aporia integrations", function()
     assert.same({ "disable", "enable" }, calls)
     assert.is_false(vim.g.aporia_sidebar)
     assert.same({ "AporiaSidebarOpen", "AporiaSidebarClose" }, events)
+  end)
+
+  it("keeps the cursor in the input when no-neck-pain moves focus", function()
+    fake_nnp(true)
+    c.open()
+    settle()
+    assert.equals(c.input_winid, vim.api.nvim_get_current_win())
+    c.hide()
+    settle()
   end)
 
   it("leaves no-neck-pain alone when it was already off", function()

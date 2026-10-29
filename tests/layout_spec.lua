@@ -17,6 +17,9 @@ describe("aporia sidebar layout", function()
   before_each(function()
     ctx.clear()
     c.hide()
+    -- each test starts its own conversation
+    c.sessions = { assist = {}, teach = {} }
+    c.messages = c.sessions[c.mode]
   end)
 
   after_each(function()
@@ -167,7 +170,7 @@ describe("aporia sidebar layout", function()
     assert.is_truthy(saw_marker, "expanded marker missing")
   end)
 
-  it("folds the full prompt for trap messages and the system prompt for every turn", function()
+  it("folds the full prompt for trap messages and the system prompt where it changes", function()
     c.open()
     table.insert(c.messages, {
       role = "user",
@@ -183,11 +186,18 @@ describe("aporia sidebar layout", function()
       system = "You are a programming tutor.",
       time = "00:01",
     })
+    table.insert(c.messages, {
+      role = "user",
+      question = "after an update",
+      system = "You are a better tutor.",
+      time = "00:02",
+    })
     c.render()
     local text = table.concat(vim.api.nvim_buf_get_lines(c.bufnr, 0, -1, false), "\n")
     assert.is_truthy(text:find("▸ full prompt", 1, true), "trap full-prompt fold missing")
     assert.falsy(text:find("▸ staged context", 1, true), "trap should not duplicate a staged-context fold")
-    assert.equals(2, select(2, text:gsub("▸ system prompt", "")), "system prompt fold per user turn")
+    -- first turn, then only where the prompt changed
+    assert.equals(2, select(2, text:gsub("▸ system prompt", "")), "system prompt fold only on change")
     assert.falsy(text:find("You are a programming tutor", 1, true))
   end)
 
@@ -210,16 +220,8 @@ describe("aporia sidebar layout", function()
     local text = table.concat(lines, "\n")
     assert.is_truthy(text:find("▸ a.lua 1%-1 · za to expand"), "first file fold missing")
     assert.is_truthy(text:find("▸ b.lua 1%-1 · za to expand"), "second file fold missing")
-    assert.is_truthy(text:find("▸ full prompt", 1, true), "full prompt fold missing for layered message")
-    local marks = vim.api.nvim_buf_get_extmarks(c.bufnr, vim.api.nvim_get_namespaces()["aporia"] or 0, 0, -1, { details = true })
-    local saw_code = false
-    for _, m in ipairs(marks) do
-      if m[4].hl_group == "AporiaCode" then
-        saw_code = true
-      end
-    end
-    assert.is_truthy(saw_code, "no AporiaCode background applied")
-
+    -- the full prompt is just question + files here, so it gets no fold of its own
+    assert.falsy(text:find("▸ full prompt", 1, true), "redundant full prompt fold for layered message")
     local fold_line = nil
     for i, l in ipairs(lines) do
       if l:find("▸ a.lua", 1, true) then
@@ -232,6 +234,15 @@ describe("aporia sidebar layout", function()
     text = table.concat(vim.api.nvim_buf_get_lines(c.bufnr, 0, -1, false), "\n")
     assert.is_truthy(text:find("▾ a.lua 1%-1", 1, false), "per-file za toggle failed")
     assert.is_truthy(text:find("a = 1", 1, true), "expanded file missing code")
+    -- expanded code gets the code background
+    local marks = vim.api.nvim_buf_get_extmarks(c.bufnr, vim.api.nvim_get_namespaces()["aporia"] or 0, 0, -1, { details = true })
+    local saw_code = false
+    for _, m in ipairs(marks) do
+      if m[4].hl_group == "AporiaCode" then
+        saw_code = true
+      end
+    end
+    assert.is_truthy(saw_code, "no AporiaCode background applied")
   end)
 
   it("always folds the full prompt first, with nested per-file folds inside", function()
@@ -344,8 +355,9 @@ describe("aporia sidebar layout", function()
         assert.is_true(col + vim.api.nvim_win_get_width(w) <= chat.col, "window " .. w .. " is under the sidebar")
       end
       local spacer_col = vim.api.nvim_win_get_position(c.spacer_winid)[2]
-      assert.equals(spacer_col, chat.col)
-      assert.equals(vim.api.nvim_win_get_width(c.spacer_winid), chat.width + 2)
+      -- the chat border covers the split separator left of the spacer
+      assert.equals(spacer_col - 1, chat.col)
+      assert.equals(vim.api.nvim_win_get_width(c.spacer_winid), chat.width + 1)
     end)
 
     it("shares the remaining width evenly instead of squeezing one neighbour", function()
@@ -392,5 +404,60 @@ describe("aporia sidebar layout", function()
         assert.equals("", vim.api.nvim_win_get_config(w).relative)
       end
     end)
+  end)
+end)
+
+describe("aporia chat highlighting", function()
+  before_each(function()
+    c.sessions = { assist = {}, teach = {} }
+    c.messages = c.sessions[c.mode]
+  end)
+
+  after_each(function()
+    c.hide()
+  end)
+
+  -- injected code trees must sit on the fenced blocks after every re-render;
+  -- a stale one colours ordinary reply text as code
+  it("keeps code highlighting inside the fences after re-renders", function()
+    c.open()
+    local code = { "```lua" }
+    -- longer than the window, so the block scrolls out of view
+    for i = 1, 150 do
+      code[#code + 1] = ("local v%d = %d"):format(i, i)
+    end
+    code[#code + 1] = "```"
+    table.insert(c.messages, {
+      role = "user",
+      question = "q",
+      parts = { { text = "q" }, { sep = "\n\n", short = "a.lua", block = table.concat(code, "\n"), expanded = true } },
+      expanded_full = true,
+      time = "",
+    })
+    table.insert(c.messages, { role = "assistant", content = "plain words", time = "" })
+    c.render()
+    vim.cmd("redraw")
+    for n = 1, 4 do
+      table.insert(c.messages, { role = "user", question = "again " .. n, parts = { { text = "again" } }, time = "" })
+      table.insert(c.messages, { role = "assistant", content = "more plain words " .. n, time = "" })
+      c.render()
+      -- the highlighter parses only the visible rows on redraw
+      vim.cmd("redraw")
+    end
+    local lines = vim.api.nvim_buf_get_lines(c.bufnr, 0, -1, false)
+    local open_row, close_row
+    for i, l in ipairs(lines) do
+      if l == "```lua" then
+        open_row = i - 1
+      elseif l == "```" and open_row and not close_row then
+        close_row = i - 1
+      end
+    end
+    local lua_tree = vim.treesitter.get_parser(c.bufnr, "markdown"):children().lua
+    assert.is_truthy(lua_tree, "no lua injection")
+    for _, tree in ipairs(lua_tree:trees()) do
+      local start_row, _, end_row = tree:root():range()
+      assert.is_true(start_row > open_row and end_row <= close_row, ("lua tree at rows %d-%d, fence %d-%d"):format(start_row, end_row, open_row, close_row))
+    end
   end)
 end)

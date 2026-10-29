@@ -1,7 +1,7 @@
 local M = {}
 
 local TRAPS = { "question", "hint", "reframe", "steps", "rootcause", "log" }
-local SUBCOMMANDS = vim.list_extend({ "toggle", "assist", "teach", "reset", "delete-all-sessions", "add", "addbuffer" }, TRAPS)
+local SUBCOMMANDS = vim.list_extend({ "toggle", "assist", "teach", "reset", "resume", "delete-all-sessions", "add", "addbuffer" }, TRAPS)
 
 function M.register()
   vim.api.nvim_create_user_command("Aporia", function(o)
@@ -18,6 +18,10 @@ function M.register()
     end
     if sub == "reset" then
       return chat.reset()
+    end
+    if sub == "resume" then
+      chat.open()
+      return chat.resume()
     end
     if sub == "add" then
       return require("aporia.context").stage_selection()

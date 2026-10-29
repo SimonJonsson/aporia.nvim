@@ -41,13 +41,37 @@ function M.dir(root)
   return dir
 end
 
-function M.new_id()
-  return os.date("%Y%m%d-%H%M%S")
-end
-
 local function session_dir(mode, root)
   local dir = M.dir(root)
   return dir and vim.fs.joinpath(dir, "sessions", mode)
+end
+
+local function session_path(mode, id, root)
+  root = root or M.root()
+  return root and vim.fs.joinpath(root, opts().dir, "sessions", mode, id .. ".json")
+end
+
+-- a timestamp id, made unique within the mode's directory
+function M.new_id(mode, root)
+  local base = os.date("%Y%m%d-%H%M%S")
+  local id, n = base, 1
+  while mode and root and vim.uv.fs_stat(session_path(mode, id, root)) do
+    n = n + 1
+    id = base .. "-" .. n
+  end
+  return id
+end
+
+-- What the file looks like on disk right now; nil when it does not exist.
+-- An instance compares this with what it saw at its last load or save to
+-- notice another Neovim writing the same conversation.
+function M.stamp(mode, id, root)
+  local path = session_path(mode, id, root)
+  local stat = path and vim.uv.fs_stat(path)
+  if not stat then
+    return nil
+  end
+  return ("%d.%d:%d"):format(stat.mtime.sec, stat.mtime.nsec, stat.size)
 end
 
 function M.save(mode, id, messages, root)
@@ -60,28 +84,66 @@ function M.save(mode, id, messages, root)
   return write(vim.fs.joinpath(dir, id .. ".json"), vim.json.encode(doc))
 end
 
--- newest session for mode: { id, messages } or nil
-function M.load_latest(mode, root)
-  root = root or M.root()
-  if not root then
+local function read(path)
+  local f = io.open(path, "r")
+  if not f then
     return nil
   end
+  local ok, doc = pcall(vim.json.decode, f:read("*a"), { luanil = { object = true, array = true } })
+  f:close()
+  if ok and type(doc) == "table" and type(doc.messages) == "table" then
+    return doc
+  end
+  return nil
+end
+
+-- one session: { id, messages } or nil
+function M.load(mode, id, root)
+  local path = session_path(mode, id, root)
+  local doc = path and read(path)
+  return doc and { id = id, messages = doc.messages }
+end
+
+-- the mode's sessions, newest first: { id, turns, first }, where first is
+-- the opening question
+function M.list(mode, root)
+  root = root or M.root()
+  if not root then
+    return {}
+  end
   local dir = vim.fs.joinpath(root, opts().dir, "sessions", mode)
-  local names = {}
+  local ids = {}
   for name, kind in vim.fs.dir(dir) do
     if kind == "file" and name:match("%.json$") then
-      names[#names + 1] = name
+      ids[#ids + 1] = name:gsub("%.json$", "")
     end
   end
-  table.sort(names)
-  for i = #names, 1, -1 do
-    local f = io.open(vim.fs.joinpath(dir, names[i]), "r")
-    if f then
-      local ok, doc = pcall(vim.json.decode, f:read("*a"), { luanil = { object = true, array = true } })
-      f:close()
-      if ok and type(doc) == "table" and type(doc.messages) == "table" then
-        return { id = doc.id or names[i]:gsub("%.json$", ""), messages = doc.messages }
+  table.sort(ids, function(a, b)
+    return a > b
+  end)
+  local out = {}
+  for _, id in ipairs(ids) do
+    local doc = read(vim.fs.joinpath(dir, id .. ".json"))
+    if doc then
+      local turns, first = 0, nil
+      for _, m in ipairs(doc.messages) do
+        if m.role == "user" then
+          turns = turns + 1
+          first = first or m.question or (m.parts and m.parts[1] and m.parts[1].text)
+        end
       end
+      out[#out + 1] = { id = id, turns = turns, first = first or "" }
+    end
+  end
+  return out
+end
+
+-- newest session for mode: { id, messages } or nil
+function M.load_latest(mode, root)
+  for _, s in ipairs(M.list(mode, root)) do
+    local loaded = M.load(mode, s.id, root)
+    if loaded then
+      return loaded
     end
   end
   return nil

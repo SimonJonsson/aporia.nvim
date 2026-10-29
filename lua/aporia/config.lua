@@ -40,6 +40,14 @@ M.defaults = {
     dir = ".aporia",
     markers = { ".aporia", ".git" },
   },
+  -- the Rust backend (backend/, built with `make backend`) runs the agent
+  -- loop and gives assist mode tools to read the project; without a built
+  -- binary aporia chats without tools
+  backend = {
+    enabled = true,
+    cmd = nil, -- default: the newest of backend/target/{release,debug}/aporia
+    max_rounds = 8, -- model calls per reply; the last one gets no tools
+  },
   -- window-layout plugins aporia steps around while the sidebar is open
   integrations = {
     no_neck_pain = true, -- paused while open, resumed on close

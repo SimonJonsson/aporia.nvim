@@ -51,9 +51,10 @@ COMMANDS                                                    *aporia-commands*
 
 :Aporia [sub]                                                 *:Aporia*
     Without argument: toggle the chat window.
-    Subcommands: toggle, assist, teach, reset, delete-all-sessions, add,
-    addbuffer, question, hint, reframe, steps, rootcause, log. `assist` and
-    `teach` open the chat in that mode; `reset` wipes both conversations;
+    Subcommands: toggle, assist, teach, reset, resume, delete-all-sessions,
+    add, addbuffer, question, hint, reframe, steps, rootcause, log. `assist`
+    and `teach` open the chat in that mode; `reset` wipes both conversations;
+    `resume` picks a saved conversation of the current mode to continue;
     `delete-all-sessions` removes the project's saved sessions after asking.
 
 ==============================================================================
@@ -80,6 +81,7 @@ x              Clear the current mode's conversation
 
 Slash commands, typed into the input and sent with <CR>:   *aporia-slash*
 /new           Fresh conversation in the current mode
+/resume        Pick a saved conversation of the current mode and continue it
 /assist        Switch to assist mode
 /teach         Switch to teach mode
 /reset         Wipe both conversations and staged context
@@ -132,5 +134,20 @@ context.padding             lines of surrounding context staged with a
                             selection (default 15)
 context.max_lines           truncation cap per staged block (default 200)
 log_file                    learning log path (default ~/notes/learning.md)
+backend.enabled             use the Rust backend when built (default true)
+backend.cmd                 backend binary; default the newest of
+                            backend/target/{release,debug}/aporia
+backend.max_rounds          model calls per reply, the last without tools
+                            (default 8)
+
+==============================================================================
+PROJECT TOOLS                                                  *aporia-tools*
+
+With the backend built (`make backend` in the plugin directory), assist mode
+can read the project before answering: `list_files`, `grep` and
+`read_file`. Each step shows under the reply as it runs. The tools are
+read-only, stay inside the project root, skip .git/ and .aporia/, and refuse
+files git ignores. Open buffers are read with unsaved edits. Teach mode gets
+no tools. |:checkhealth| aporia reports whether the backend answers.
 
 vim:tw=78:ts=8:noet:ft=help:norl:
