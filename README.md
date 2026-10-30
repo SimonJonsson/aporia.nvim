@@ -198,8 +198,8 @@ The tools are read-only: `list_files`, `grep` and `read_file`. They only
 reach files inside the project root, never `.git/` or `.aporia/`, and never
 files git ignores (`.env`, build output), so those are not sent to the
 provider. An open buffer is read as it is in the editor, unsaved edits
-included. A reply makes at most `backend.max_rounds` model calls (default 8);
-the last one gets no tools, so the model has to answer.
+included. A reply makes at most `backend.max_rounds` model calls (default 12);
+the last one gets no tools and is told to answer from what it has read.
 
 Teach mode gets no tools: it works from what you show it. Without the
 backend, assist mode sees only what you stage.

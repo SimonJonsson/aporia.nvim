@@ -30,7 +30,7 @@ pub struct ChatStart {
 }
 
 fn default_max_rounds() -> usize {
-    8
+    12
 }
 
 #[derive(Debug, Deserialize)]
@@ -67,7 +67,7 @@ mod tests {
         assert_eq!(start.id, 3);
         assert!(start.provider.api_key.is_none());
         assert!(start.tools.is_empty());
-        assert_eq!(start.max_rounds, 8);
+        assert_eq!(start.max_rounds, 12);
     }
 
     #[test]

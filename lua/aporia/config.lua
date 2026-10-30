@@ -46,7 +46,7 @@ M.defaults = {
   backend = {
     enabled = true,
     cmd = nil, -- default: the newest of backend/target/{release,debug}/aporia
-    max_rounds = 8, -- model calls per reply; the last one gets no tools
+    max_rounds = 12, -- model calls per reply; the last one gets no tools
   },
   -- window-layout plugins aporia steps around while the sidebar is open
   integrations = {

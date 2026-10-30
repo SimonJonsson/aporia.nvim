@@ -24,6 +24,11 @@ use serde::Serialize;
 
 use crate::openai::{Chunk, FunctionCall, Message, ToolCall};
 
+/// Sent before the last model call of a turn, which gets no tools.
+pub const BUDGET_SPENT: &str = "[aporia] No more tool calls are available for \
+    this reply. Answer now from what you have read so far, and say what you \
+    could not check.";
+
 /// What the shell tells the agent.
 #[derive(Debug)]
 pub enum Input {
@@ -247,6 +252,14 @@ impl Agent {
                 }
                 self.rounds += 1;
                 let tools = self.rounds < self.max_rounds;
+                if !tools {
+                    // Without this the model may still try a tool call; with
+                    // no tools in the request the server does not parse it,
+                    // and the raw call syntax lands in the reply as text.
+                    self.messages.push(Message::User {
+                        content: BUDGET_SPENT.into(),
+                    });
+                }
                 self.state = State::Streaming(Round {
                     tools_offered: tools,
                     ..Round::default()
@@ -407,7 +420,22 @@ mod tests {
             call_id: "c".into(),
             output: "".into(),
         });
-        assert!(matches!(next[..], [Action::CallModel { tools: false, .. }]));
+        let [
+            Action::CallModel {
+                messages,
+                tools: false,
+            },
+        ] = &next[..]
+        else {
+            panic!("expected a last call without tools, got {next:?}");
+        };
+        // the model is told the budget is spent, after the tool results
+        assert_eq!(
+            messages.last(),
+            Some(&Message::User {
+                content: BUDGET_SPENT.into()
+            })
+        );
         // the model calls a tool anyway: the turn ends instead of looping
         agent.handle(chunk(call));
         let end = agent.handle(Input::ModelEnd);
